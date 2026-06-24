@@ -2,7 +2,7 @@
 
 # AI视频转录器
 
-中文 | [English](README.md)
+中文 | [Русский](README.md) | [English](README_EN.md)
 
 一款开源的AI视频/播客转录和摘要工具：支持YouTube、Bilibili、抖音、Apple Podcasts、SoundCloud等30+平台链接，**也支持本地上传**（音视频或纯文本）。
 

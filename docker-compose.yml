@@ -4,23 +4,23 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # 必需：OpenAI API密钥（请在.env文件中设置或直接修改）
+      # Обязательно: API-ключ OpenAI (укажите в файле .env или измените здесь напрямую)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-your_openai_api_key_here}
-      # 可选：自定义OpenAI端点
+      # Опционально: пользовательский эндпоинт OpenAI
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      # 可选：Whisper模型大小
+      # Опционально: размер модели Whisper
       - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
-      # 可选：本地上传单文件大小上限（MB），与本地环境变量一致
+      # Опционально: максимальный размер одного загружаемого локального файла (МБ), соответствует локальной переменной окружения
       - UPLOAD_MAX_MB=${UPLOAD_MAX_MB:-200}
-      # 服务器配置
+      # Конфигурация сервера
       - HOST=0.0.0.0
       - PORT=8000
     # volumes:
-      # 挂载临时文件目录，便于查看和管理下载的文件  
+      # Монтирование директории для временных файлов, для удобства просмотра и управления загруженными файлами
       # - ./temp:/app/temp
     restart: unless-stopped
     
-    # 资源限制（可选）
+    # Ограничение ресурсов (опционально)
     deploy:
       resources:
         limits:

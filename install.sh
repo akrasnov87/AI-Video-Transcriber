@@ -1,47 +1,47 @@
 #!/bin/bash
 
-# AI视频转录器安装脚本
+# Скрипт установки AI Видео Транскрибатора
 
-echo "🚀 AI视频转录器安装脚本"
+echo "🚀 Скрипт установки AI Видео Транскрибатора"
 echo "=========================="
 
-# 检查Python版本
-echo "检查Python环境..."
+# Проверка версии Python
+echo "Проверка окружения Python..."
 python_version=$(python3 --version 2>&1 | cut -d' ' -f2)
 if [[ -z "$python_version" ]]; then
-    echo "❌ 未找到Python3，请先安装Python 3.8或更高版本"
+    echo "❌ Python3 не найден. Пожалуйста, установите Python 3.8 или выше"
     exit 1
 fi
-echo "✅ Python版本: $python_version"
+echo "✅ Версия Python: $python_version"
 
-# 检查pip
+# Проверка pip
 if ! command -v pip3 &> /dev/null; then
-    echo "❌ 未找到pip3，请先安装pip"
+    echo "❌ pip3 не найден. Пожалуйста, установите pip"
     exit 1
 fi
-echo "✅ pip已安装"
+echo "✅ pip установлен"
 
-# 安装Python依赖
+# Установка зависимостей Python
 echo ""
-echo "安装Python依赖..."
+echo "Установка зависимостей Python..."
 pip3 install -r requirements.txt
 
 if [ $? -eq 0 ]; then
-    echo "✅ Python依赖安装完成"
+    echo "✅ Установка зависимостей Python завершена"
 else
-    echo "❌ Python依赖安装失败"
+    echo "❌ Ошибка установки зависимостей Python"
     exit 1
 fi
 
-# 检查FFmpeg
+# Проверка FFmpeg
 echo ""
-echo "检查FFmpeg..."
+echo "Проверка FFmpeg..."
 if command -v ffmpeg &> /dev/null; then
-    echo "✅ FFmpeg已安装"
+    echo "✅ FFmpeg установлен"
 else
-    echo "⚠️  FFmpeg未安装，正在尝试安装..."
+    echo "⚠️  FFmpeg не найден, пробуем установить..."
     
-    # 检测操作系统
+    # Определение операционной системы
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         # Linux
         if command -v apt-get &> /dev/null; then
@@ -49,42 +49,42 @@ else
         elif command -v yum &> /dev/null; then
             sudo yum install -y ffmpeg
         else
-            echo "❌ 无法自动安装FFmpeg，请手动安装"
+            echo "❌ Не удалось автоматически установить FFmpeg. Пожалуйста, установите вручную"
         fi
     elif [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
         if command -v brew &> /dev/null; then
             brew install ffmpeg
         else
-            echo "❌ 请先安装Homebrew，然后运行: brew install ffmpeg"
+            echo "❌ Пожалуйста, установите Homebrew, затем выполните: brew install ffmpeg"
         fi
     else
-        echo "❌ 不支持的操作系统，请手动安装FFmpeg"
+        echo "❌ Неподдерживаемая операционная система. Пожалуйста, установите FFmpeg вручную"
     fi
 fi
 
-# 创建必要的目录
+# Создание необходимых директорий
 echo ""
-echo "创建必要的目录..."
+echo "Создание необходимых директорий..."
 mkdir -p temp static
-echo "✅ 目录创建完成"
+echo "✅ Директории созданы"
 
-# 设置权限
+# Установка прав на выполнение
 chmod +x start.py
 
 echo ""
-echo "🎉 安装完成!"
+echo "🎉 Установка завершена!"
 echo ""
-echo "使用方法:"
-echo "  1. (可选) 配置OpenAI API密钥以启用智能摘要功能"
-echo "     export OPENAI_API_KEY=your_api_key_here"
+echo "Инструкция по использованию:"
+echo "  1. (Опционально) Настройте API-ключ OpenAI для включения функции интеллектуального саммари"
+echo "     export OPENAI_API_KEY=ваш_api_ключ_здесь"
 echo ""
-echo "  2. 启动服务:"
+echo "  2. Запустите сервис:"
 echo "     python3 start.py"
 echo ""
-echo "  3. 打开浏览器访问: http://localhost:8000"
+echo "  3. Откройте браузер и перейдите по адресу: http://localhost:8000"
 echo ""
-echo "支持的视频平台:"
+echo "Поддерживаемые видеоплатформы:"
 echo "  - YouTube"
 echo "  - Bilibili"
-echo "  - 其他yt-dlp支持的平台"
+echo "  - Другие платформы, поддерживаемые yt-dlp"

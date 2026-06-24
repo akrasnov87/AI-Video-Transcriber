@@ -1,8 +1,8 @@
-# Git相关
+# Git
 .git
 .gitignore
 
-# Python相关
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -13,28 +13,28 @@ env/
 venv/
 ENV/
 
-# 临时文件
+# Временные файлы
 temp/
 *.tmp
 *.log
 
-# IDE相关
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# 系统文件
+# Системные файлы
 .DS_Store
 Thumbs.db
 
-# 文档和图片（构建时不需要）
+# Документация и изображения (не требуются при сборке)
 *.md
 *.png
 *.jpg
 *.gif
 
-# Docker相关
+# Docker
 Dockerfile
 docker-compose.yml
 .dockerignore

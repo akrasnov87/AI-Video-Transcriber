@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AI视频转录器启动脚本
+Скрипт запуска AI Видео Транскрибатора
 """
 
 import os
@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 
 def check_dependencies():
-    """检查依赖是否安装"""
+    """Проверка установленных зависимостей"""
     import sys
     required_packages = {
         "fastapi": "fastapi",
@@ -27,91 +27,91 @@ def check_dependencies():
             missing_packages.append(display_name)
     
     if missing_packages:
-        print("❌ 缺少以下依赖包:")
+        print("❌ Отсутствуют следующие зависимости:")
         for package in missing_packages:
             print(f"   - {package}")
-        print("\n请运行以下命令安装依赖:")
+        print("\nВыполните следующую команду для установки зависимостей:")
         print("source venv/bin/activate && pip install -r requirements.txt")
         return False
     
-    print("✅ 所有依赖已安装")
+    print("✅ Все зависимости установлены")
     return True
 
 def check_ffmpeg():
-    """检查FFmpeg是否安装"""
+    """Проверка установки FFmpeg"""
     try:
         subprocess.run(["ffmpeg", "-version"], 
                       stdout=subprocess.DEVNULL, 
                       stderr=subprocess.DEVNULL, 
                       check=True)
-        print("✅ FFmpeg已安装")
+        print("✅ FFmpeg установлен")
         return True
     except (subprocess.CalledProcessError, FileNotFoundError):
-        print("❌ 未找到FFmpeg")
-        print("请安装FFmpeg:")
+        print("❌ FFmpeg не найден")
+        print("Пожалуйста, установите FFmpeg:")
         print("  macOS: brew install ffmpeg")
         print("  Ubuntu: sudo apt install ffmpeg")
-        print("  Windows: 从官网下载 https://ffmpeg.org/download.html")
+        print("  Windows: загрузите с официального сайта https://ffmpeg.org/download.html")
         return False
 
 def setup_environment():
-    """设置环境变量"""
-    # 设置OpenAI配置
+    """Настройка переменных окружения"""
+    # Настройка конфигурации OpenAI
     if not os.getenv("OPENAI_API_KEY"):
-        print("⚠️  警告: 未设置OPENAI_API_KEY环境变量")
-        print("请设置环境变量: export OPENAI_API_KEY=your_api_key_here")
+        print("⚠️  Предупреждение: переменная окружения OPENAI_API_KEY не установлена")
+        print("Пожалуйста, установите переменную: export OPENAI_API_KEY=ваш_api_ключ_здесь")
         return False
     
-    print("✅ 已设置OpenAI API Key")
+    print("✅ OpenAI API Key установлен")
     
     if not os.getenv("OPENAI_BASE_URL"):
         os.environ["OPENAI_BASE_URL"] = "https://oneapi.basevec.com/v1"
-        print("✅ 已设置OpenAI Base URL")
+        print("✅ OpenAI Base URL установлен")
     
-    # 设置其他默认配置
+    # Установка других настроек по умолчанию
     if not os.getenv("WHISPER_MODEL_SIZE"):
         os.environ["WHISPER_MODEL_SIZE"] = "base"
     
-    print("🔑 OpenAI API已配置，摘要功能可用")
+    print("🔑 OpenAI API настроен, функция создания саммари доступна")
     return True
 
 def main():
-    """主函数"""
-    # 检查是否使用生产模式（禁用热重载）
+    """Основная функция"""
+    # Проверка использования производственного режима (отключение горячей перезагрузки)
     production_mode = "--prod" in sys.argv or os.getenv("PRODUCTION_MODE") == "true"
     
-    print("🚀 AI视频转录器启动检查")
+    print("🚀 Проверка запуска AI Видео Транскрибатора")
     if production_mode:
-        print("🔒 生产模式 - 热重载已禁用")
+        print("🔒 Производственный режим - горячая перезагрузка отключена")
     else:
-        print("🔧 开发模式 - 热重载已启用")
+        print("🔧 Режим разработки - горячая перезагрузка включена")
     print("=" * 50)
     
-    # 检查依赖
+    # Проверка зависимостей
     if not check_dependencies():
         sys.exit(1)
     
-    # 检查FFmpeg
+    # Проверка FFmpeg
     if not check_ffmpeg():
-        print("⚠️  FFmpeg未安装，可能影响某些视频格式的处理")
+        print("⚠️  FFmpeg не установлен, это может повлиять на обработку некоторых видеоформатов")
     
-    # 设置环境
+    # Настройка окружения
     setup_environment()
     
-    print("\n🎉 启动检查完成!")
+    print("\n🎉 Проверка запуска завершена!")
     print("=" * 50)
     
-    # 启动服务器
+    # Запуск сервера
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", 8000))
     
-    print(f"\n🌐 启动服务器...")
-    print(f"   地址: http://localhost:{port}")
-    print(f"   按 Ctrl+C 停止服务")
+    print(f"\n🌐 Запуск сервера...")
+    print(f"   Адрес: http://localhost:{port}")
+    print(f"   Нажмите Ctrl+C для остановки сервиса")
     print("=" * 50)
     
     try:
-        # 切换到backend目录并启动服务
+        # Переход в директорию backend и запуск сервиса
         backend_dir = Path(__file__).parent / "backend"
         os.chdir(backend_dir)
         
@@ -121,16 +121,16 @@ def main():
             "--port", str(port)
         ]
         
-        # 只在开发模式下启用热重载
+        # Включение горячей перезагрузки только в режиме разработки
         if not production_mode:
             cmd.append("--reload")
         
         subprocess.run(cmd)
         
     except KeyboardInterrupt:
-        print("\n\n👋 服务已停止")
+        print("\n\n👋 Сервис остановлен")
     except Exception as e:
-        print(f"\n❌ 启动失败: {e}")
+        print(f"\n❌ Ошибка запуска: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

@@ -1,10 +1,10 @@
-"""Remove common LLM meta / closing phrases from model output."""
+"""Удаление типовых мета-фраз и заключений LLM из вывода модели."""
 from __future__ import annotations
 
 import re
 from typing import Optional
 
-# Trailing blocks (English + Chinese) often added despite instructions
+# Завершающие блоки (английский + китайский), часто добавляемые вопреки инструкциям
 _PATTERNS = [
     re.compile(r"(?is)\n{1,2}let me know[\s\S]{0,800}\Z"),
     re.compile(r"(?is)\n{1,2}feel free to[\s\S]{0,800}\Z"),
@@ -16,15 +16,29 @@ _PATTERNS = [
 
 
 def strip_llm_artifacts(text: Optional[str]) -> str:
+    """
+    Удаление артефактов LLM из текста.
+    
+    Очищает вывод модели от типовых мета-фраз, заключений и
+    служебных предложений, которые не являются частью основного контента.
+    
+    Args:
+        text: Исходный текст от модели
+        
+    Returns:
+        Очищенный текст без артефактов
+    """
     if not text or not isinstance(text, str):
         return (text or "").strip()
     t = text.strip()
+    # Многократное применение паттернов для удаления вложенных артефактов
     for _ in range(6):
         before = t
         for pat in _PATTERNS:
             t = pat.sub("", t).strip()
         if t == before:
             break
+    # Дополнительная проверка последних строк
     lines = t.split("\n")
     while lines:
         last = lines[-1].strip()
@@ -32,6 +46,7 @@ def strip_llm_artifacts(text: Optional[str]) -> str:
             lines.pop()
             continue
         low = last.lower()
+        # Если последняя строка содержит типовые фразы — удаляем
         if len(last) < 200 and any(
             x in low
             for x in (

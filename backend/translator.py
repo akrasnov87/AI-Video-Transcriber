@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class Translator:
-    """文本翻译器；支持环境变量或请求内传入的 API Key / Base URL（与 Summarizer 一致）。"""
+    """Переводчик текста; поддерживает API Key / Base URL из переменных окружения или переданных в запросе (аналогично Summarizer)."""
 
     def __init__(
         self,
@@ -49,19 +49,19 @@ class Translator:
             eff_base = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 
         if not eff_key:
-            logger.warning("未设置可用的 OpenAI API Key，翻译将不可用")
+            logger.warning("Действительный OpenAI API Key не установлен, перевод будет недоступен")
             return
 
         try:
             self.client = OpenAI(api_key=eff_key, base_url=eff_base)
-            logger.info("Translator OpenAI 客户端初始化成功")
+            logger.info("Клиент OpenAI Translator успешно инициализирован")
         except Exception as e:
-            logger.error(f"初始化 OpenAI 客户端失败: {e}")
+            logger.error(f"Ошибка инициализации клиента OpenAI: {e}")
             self.client = None
     
     def _detect_source_language(self, text: str) -> str:
-        """检测源文本语言"""
-        # 简单的语言检测逻辑
+        """Определение языка исходного текста"""
+        # Простая логика определения языка
         if "**检测语言:**" in text:
             lines = text.split('\n')
             for line in lines:
@@ -69,20 +69,20 @@ class Translator:
                     lang = line.split(":")[-1].strip()
                     return lang
         
-        # 基于字符统计的简单检测
+        # Простое определение на основе статистики символов
         total_chars = len(text)
         if total_chars == 0:
             return "en"
         
-        # 统计中文字符
+        # Подсчет китайских символов
         chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
         chinese_ratio = chinese_chars / total_chars
         
-        # 统计日文字符
+        # Подсчет японских символов
         japanese_chars = len(re.findall(r'[\u3040-\u309f\u30a0-\u30ff]', text))
         japanese_ratio = japanese_chars / total_chars
         
-        # 统计韩文字符
+        # Подсчет корейских символов
         korean_chars = len(re.findall(r'[\uac00-\ud7af]', text))
         korean_ratio = korean_chars / total_chars
         
@@ -106,15 +106,15 @@ class Translator:
         return c
 
     def normalize_lang_code(self, code: Optional[str]) -> str:
-        """对外统一语言代码，与 should_translate 内部一致。"""
+        """Единый метод нормализации кода языка, согласованный с should_translate."""
         return self._normalize_lang_code(code or "")
 
     def infer_language_code(self, text: str) -> str:
-        """从正文推断语言代码（ISO 风格），供转录元信息缺失时使用。"""
+        """Определение кода языка из текста (в стиле ISO), используется при отсутствии метаданных транскрипции."""
         return self._detect_source_language(text or "")
 
     def should_translate(self, source_language: str, target_language: str) -> bool:
-        """判断是否需要翻译"""
+        """Определение необходимости перевода"""
         if not source_language or not target_language:
             return False
 
@@ -131,21 +131,22 @@ class Translator:
         return True
 
     def languages_differ_for_translation(self, source_code: Optional[str], summary_lang: Optional[str]) -> bool:
-        """摘要语言（用户选择）与源语言不同时为 True，用于是否生成/展示翻译。"""
+        """Возвращает True, если язык саммари (выбранный пользователем) отличается от исходного языка.
+        Используется для определения необходимости генерации/отображения перевода."""
         s = self.normalize_lang_code(source_code or "")
         t = self.normalize_lang_code(summary_lang or "")
         return bool(s and t and self.should_translate(s, t))
 
     def _smart_chunk_text(self, text: str, max_chars_per_chunk: int = 4000) -> list:
-        """智能分块文本用于翻译"""
+        """Интеллектуальная разбивка текста на фрагменты для перевода"""
         chunks = []
 
-        # 首先按段落分割
+        # Сначала разбиваем по абзацам
         paragraphs = [p for p in text.split('\n\n') if p.strip()]
         current_chunk = ""
 
         for paragraph in paragraphs:
-            # 如果当前段落加上现有块超过限制
+            # Если текущий абзац + существующий блок превышает лимит
             if len(current_chunk) + len(paragraph) + 2 > max_chars_per_chunk and current_chunk:
                 chunks.append(current_chunk.strip())
                 current_chunk = paragraph
@@ -155,17 +156,17 @@ class Translator:
                 else:
                     current_chunk = paragraph
 
-        # 添加最后一块
+        # Добавляем последний блок
         if current_chunk.strip():
             chunks.append(current_chunk.strip())
 
-        # 如果某个块仍然太长，按句子进一步分割
+        # Если какой-то блок все еще слишком длинный, разбиваем дальше по предложениям
         final_chunks = []
         for chunk in chunks:
             if len(chunk) <= max_chars_per_chunk:
                 final_chunks.append(chunk)
             else:
-                # 按句子分割
+                # Разбивка по предложениям
                 sentences = re.split(r'[.!?。！？]\s+', chunk)
                 current_sub_chunk = ""
 
@@ -186,26 +187,26 @@ class Translator:
 
     async def translate_text(self, text: str, target_language: str, source_language: Optional[str] = None) -> str:
         """
-        翻译文本到目标语言
+        Перевод текста на целевой язык
         
         Args:
-            text: 要翻译的文本
-            target_language: 目标语言代码
-            source_language: 源语言代码（可选，会自动检测）
+            text: Текст для перевода
+            target_language: Код целевого языка
+            source_language: Код исходного языка (опционально, определяется автоматически)
             
         Returns:
-            翻译后的文本
+            Переведенный текст
         """
         try:
             if not self.client:
-                logger.warning("OpenAI API不可用，无法翻译")
+                logger.warning("OpenAI API недоступен, перевод невозможен")
                 return text
             
-            # 检测源语言
+            # Определение исходного языка
             if not source_language:
                 source_language = self._detect_source_language(text)
             
-            # 如果源语言和目标语言相同，直接返回
+            # Если исходный и целевой языки совпадают, возвращаем оригинал
             src_n = self._normalize_lang_code(source_language or "")
             tgt_n = self._normalize_lang_code(target_language)
             if src_n and tgt_n and src_n == tgt_n:
@@ -214,36 +215,36 @@ class Translator:
             source_lang_name = self.language_map.get(src_n, self.language_map.get(source_language, source_language))
             target_lang_name = self.language_map.get(tgt_n, self.language_map.get(target_language, target_language))
             
-            logger.info(f"开始翻译：{source_lang_name} -> {target_lang_name}")
+            logger.info(f"Начало перевода: {source_lang_name} -> {target_lang_name}")
             
-            # 估算文本长度，决定是否需要分块
+            # Оценка длины текста для определения необходимости разбивки на фрагменты
             if len(text) > 3000:
-                logger.info(f"文本较长({len(text)} chars)，启用分块翻译")
+                logger.info(f"Длинный текст ({len(text)} символов), включена пофрагментная обработка")
                 return await self._translate_with_chunks(text, target_lang_name, source_lang_name)
             else:
                 return await self._translate_single_text(text, target_lang_name, source_lang_name)
                 
         except Exception as e:
-            logger.error(f"翻译失败: {str(e)}")
+            logger.error(f"Ошибка перевода: {str(e)}")
             return text
     
     async def _translate_single_text(self, text: str, target_lang_name: str, source_lang_name: str) -> str:
-        """翻译单个文本块"""
-        system_prompt = f"""你是专业翻译专家。请将{source_lang_name}文本准确翻译为{target_lang_name}。
+        """Перевод одного текстового фрагмента"""
+        system_prompt = f"""Вы профессиональный переводчик. Переведите текст с {source_lang_name} на {target_lang_name}.
 
-翻译要求：
-- 保持原文的格式和结构（包括段落分隔、标题等）
-- 准确传达原意，语言自然流畅
-- 保留专业术语的准确性
-- 不要添加解释或注释
-- 如果遇到Markdown格式，请保持格式不变
-- 只输出译文正文：不要前言、尾注、客套话，不要写「如需调整请告诉我」等任何元话语。"""
+Требования к переводу:
+- Сохраняйте форматирование и структуру оригинала (включая разделение на абзацы, заголовки)
+- Точная передача смысла, естественный и плавный язык
+- Сохранение точности профессиональных терминов
+- Не добавляйте пояснений или примечаний
+- Если встречается разметка Markdown, сохраняйте её
+- Выводите только текст перевода: без вступлений, заключений, вежливых фраз, не пишите «При необходимости скорректируйте» и т.п."""
 
-        user_prompt = f"""请将以下{source_lang_name}文本翻译为{target_lang_name}：
+        user_prompt = f"""Переведите следующий текст с {source_lang_name} на {target_lang_name}:
 
 {text}
 
-只返回翻译结果，不要添加任何说明。"""
+Верните только результат перевода, без каких-либо пояснений."""
 
         try:
             response = self.client.chat.completions.create(
@@ -258,36 +259,36 @@ class Translator:
 
             return strip_llm_artifacts(response.choices[0].message.content or "")
         except Exception as e:
-            logger.error(f"单文本翻译失败: {e}")
+            logger.error(f"Ошибка перевода одного фрагмента: {e}")
             return text
     
     async def _translate_with_chunks(self, text: str, target_lang_name: str, source_lang_name: str) -> str:
-        """分块翻译长文本"""
+        """Пофрагментный перевод длинного текста"""
         chunks = self._smart_chunk_text(text, max_chars_per_chunk=4000)
-        logger.info(f"分割为 {len(chunks)} 个块进行翻译")
+        logger.info(f"Разбито на {len(chunks)} фрагментов для перевода")
         
         translated_chunks = []
         
         for i, chunk in enumerate(chunks):
-            logger.info(f"正在翻译第 {i+1}/{len(chunks)} 块...")
+            logger.info(f"Перевод фрагмента {i+1}/{len(chunks)}...")
             
-            system_prompt = f"""你是专业翻译专家。请将{source_lang_name}文本准确翻译为{target_lang_name}。
+            system_prompt = f"""Вы профессиональный переводчик. Переведите текст с {source_lang_name} на {target_lang_name}.
 
-这是完整文档的第{i+1}部分，共{len(chunks)}部分。
+Это часть {i+1} из {len(chunks)} полного документа.
 
-翻译要求：
-- 保持原文的格式和结构
-- 准确传达原意，语言自然流畅
-- 保留专业术语的准确性
-- 不要添加解释或注释
-- 保持与前后文的连贯性
-- 只输出译文正文，不要尾注或元话语。"""
+Требования к переводу:
+- Сохраняйте форматирование и структуру оригинала
+- Точная передача смысла, естественный и плавный язык
+- Сохранение точности профессиональных терминов
+- Не добавляйте пояснений или примечаний
+- Обеспечьте связность с предыдущими и следующими частями
+- Выводите только текст перевода, без заключений или посторонних фраз."""
 
-            user_prompt = f"""请将以下{source_lang_name}文本翻译为{target_lang_name}：
+            user_prompt = f"""Переведите следующий текст с {source_lang_name} на {target_lang_name}:
 
 {chunk}
 
-只返回翻译结果。"""
+Верните только результат перевода."""
 
             try:
                 response = self.client.chat.completions.create(
@@ -303,9 +304,9 @@ class Translator:
                 translated_chunk = response.choices[0].message.content or ""
                 translated_chunks.append(strip_llm_artifacts(translated_chunk))
             except Exception as e:
-                logger.error(f"翻译第 {i+1} 块失败: {e}")
-                # 失败时保留原文
+                logger.error(f"Ошибка перевода фрагмента {i+1}: {e}")
+                # В случае ошибки сохраняем оригинал
                 translated_chunks.append(chunk)
         
-        # 合并翻译结果
+        # Объединение результатов перевода
         return strip_llm_artifacts("\n\n".join(translated_chunks))

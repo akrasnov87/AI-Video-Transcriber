@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────
-   AI Video Transcriber · app.js
+   AI Видео Транскрибатор · app.js
    ──────────────────────────────────────────────────────────── */
 
 class VideoTranscriber {
@@ -9,7 +9,7 @@ class VideoTranscriber {
     this.apiBase        = '/api';
     this.currentLang    = 'en';
 
-    /* Smart progress simulation */
+    /* Имитация прогресса */
     this.sp = {
       enabled: false, current: 0, target: 15,
       lastServer: 0, interval: null, startTime: null, stage: 'preparing'
@@ -124,7 +124,7 @@ class VideoTranscriber {
     this._switchLang('en');
   }
 
-  /* ── Elements ─────────────────────────────────────────── */
+  /* ── Элементы ─────────────────────────────────────────── */
   _initElements() {
     this.form               = document.getElementById('videoForm');
     this.videoUrlInput      = document.getElementById('videoUrl');
@@ -150,7 +150,7 @@ class VideoTranscriber {
     this.translationTabBtn  = document.getElementById('translationTabBtn');
     this.tabBtns            = document.querySelectorAll('.tab-btn');
     this.tabPanes           = document.querySelectorAll('.tab-pane');
-    // settings
+    // Настройки
     this.settingsToggle     = document.getElementById('settingsToggle');
     this.settingsBody       = document.getElementById('settingsBody');
     this.modelBaseUrl       = document.getElementById('modelBaseUrl');
@@ -166,7 +166,7 @@ class VideoTranscriber {
     this._allowedUploadExts = new Set(['.txt', '.mp3', '.mp4', '.m4a', '.wav', '.webm', '.mkv', '.ogg', '.flac']);
   }
 
-  /* ── Events ───────────────────────────────────────────── */
+  /* ── События ───────────────────────────────────────────── */
   _bindEvents() {
     this.form.addEventListener('submit', (e) => { e.preventDefault(); this._startTranscription(); });
 
@@ -174,33 +174,33 @@ class VideoTranscriber {
       this._switchLang(this.currentLang === 'en' ? 'zh' : 'en');
     });
 
-    // Settings toggle
+    // Переключение настроек
     this.settingsToggle.addEventListener('click', () => {
       const open = this.settingsBody.classList.toggle('open');
       this.settingsToggle.classList.toggle('open', open);
     });
 
-    // Fetch models
+    // Получение списка моделей
     this.fetchModelsBtn.addEventListener('click', () => this._fetchModels());
 
-    // Auto-fetch when both fields filled (debounced)
+    // Автоматическое получение моделей при заполнении полей (с задержкой)
     const debouncedFetch = this._debounce(() => {
       if (this.modelBaseUrl.value.trim() && this.apiKeyInput.value.trim()) this._fetchModels();
     }, 900);
     this.modelBaseUrl.addEventListener('input', debouncedFetch);
     this.apiKeyInput.addEventListener('input', debouncedFetch);
 
-    // Persist settings
+    // Сохранение настроек
     [this.modelBaseUrl, this.apiKeyInput, this.modelSelect, this.summaryLangSel].forEach(el => {
       el.addEventListener('change', () => this._saveSettings());
     });
 
-    // Tabs
+    // Вкладки
     this.tabBtns.forEach(btn => {
       btn.addEventListener('click', () => this._switchTab(btn.dataset.tab));
     });
 
-    // Downloads
+    // Загрузка файлов
     this.dlScript.addEventListener('click',      () => this._downloadFile('script'));
     this.dlTranslation.addEventListener('click', () => this._downloadFile('translation'));
     this.dlSummary.addEventListener('click',     () => this._downloadFile('summary'));
@@ -242,7 +242,7 @@ class VideoTranscriber {
     }
   }
 
-  /* ── i18n ─────────────────────────────────────────────── */
+  /* ── Интернационализация ─────────────────────────────── */
   t(key) { return this.i18n[this.currentLang][key] || this.i18n['en'][key] || key; }
 
   _switchLang(lang) {
@@ -254,7 +254,7 @@ class VideoTranscriber {
     document.querySelectorAll('[data-i18n]').forEach(el => {
       const v = this.t(el.dataset.i18n);
       if (typeof v === 'string') {
-        // footer 等允许含 HTML 的 key 用 innerHTML，其余保持 textContent
+        // Для footer разрешаем HTML, для остальных — обычный текст
         if (el.dataset.i18n === 'footer_text') el.innerHTML = v;
         else el.textContent = v;
       }
@@ -265,7 +265,7 @@ class VideoTranscriber {
     });
   }
 
-  /* ── Settings persistence ─────────────────────────────── */
+  /* ── Сохранение настроек ─────────────────────────────── */
   _saveSettings() {
     const s = {
       baseUrl:  this.modelBaseUrl.value,
@@ -284,14 +284,14 @@ class VideoTranscriber {
       if (s.baseUrl)     this.modelBaseUrl.value = s.baseUrl;
       if (s.apiKey)      this.apiKeyInput.value  = s.apiKey;
       if (s.summaryLang) this.summaryLangSel.value = s.summaryLang;
-      // Model options will be restored after fetching
+      // Список моделей будет восстановлен после получения
       this._savedModel = s.model || '';
 
-      // Auto-open settings if credentials were saved
+      // Автоматически открываем настройки, если сохранены учетные данные
       if (s.baseUrl || s.apiKey) {
         this.settingsBody.classList.add('open');
         this.settingsToggle.classList.add('open');
-        // Attempt to re-fetch model list silently
+        // Пытаемся получить список моделей автоматически
         if (s.baseUrl && s.apiKey) {
           setTimeout(() => this._fetchModels(true), 400);
         }
@@ -299,7 +299,7 @@ class VideoTranscriber {
     } catch (_) {}
   }
 
-  /* ── Fetch models ─────────────────────────────────────── */
+  /* ── Получение моделей ────────────────────────────────── */
   async _fetchModels(silent = false) {
     const baseUrl = this.modelBaseUrl.value.trim().replace(/\/$/, '');
     const apiKey  = this.apiKeyInput.value.trim();
@@ -326,7 +326,7 @@ class VideoTranscriber {
       const data = await resp.json();
       const models = data.data || data.models || [];
 
-      // Rebuild select options
+      // Перестраиваем список опций
       this.modelSelect.innerHTML = `<option value="">${this.t('model_default')}</option>`;
       models.forEach(m => {
         const opt = document.createElement('option');
@@ -335,7 +335,7 @@ class VideoTranscriber {
         this.modelSelect.appendChild(opt);
       });
 
-      // Restore previously selected model
+      // Восстанавливаем ранее выбранную модель
       if (this._savedModel) {
         this.modelSelect.value = this._savedModel;
         this._savedModel = '';
@@ -346,7 +346,7 @@ class VideoTranscriber {
         : `${models.length} models`);
 
     } catch (e) {
-      console.warn('Model fetch error:', e);
+      console.warn('Ошибка получения моделей:', e);
       this._setFetchStatus('err', this.t('models_error') + ': ' + e.message);
     } finally {
       this.fetchModelsBtn.disabled = false;
@@ -359,7 +359,7 @@ class VideoTranscriber {
     this.fetchStatus.textContent = msg;
   }
 
-  /* ── Transcription ────────────────────────────────────── */
+  /* ── Транскрипция ────────────────────────────────────── */
   async _startTranscription() {
     if (this.submitBtn.disabled) return;
 
@@ -387,7 +387,7 @@ class VideoTranscriber {
       const resp = await fetch(`${this.apiBase}/process-video`, { method: 'POST', body: fd });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
-        throw new Error(err.detail || 'Request failed');
+        throw new Error(err.detail || 'Ошибка запроса');
       }
 
       const data = await resp.json();
@@ -484,7 +484,7 @@ class VideoTranscriber {
           this._showResults(task.script, task.summary, task.video_title, task.translation, task.detected_language, task.summary_language);
         } else if (task.status === 'error') {
           this._stopSP(); this._stopSSE(); this._setLoading(false); this._hideProgress();
-          this._showError(task.error || 'Processing error');
+          this._showError(task.error || 'Ошибка обработки');
         }
       } catch (_) {}
     };
@@ -504,7 +504,7 @@ class VideoTranscriber {
           }
         }
       } catch (_) {}
-      this._showError(this.t('error_processing_failed') + 'SSE disconnected');
+      this._showError(this.t('error_processing_failed') + 'SSE отключено');
       this._setLoading(false);
     };
   }
@@ -513,7 +513,7 @@ class VideoTranscriber {
     if (this.eventSource) { this.eventSource.close(); this.eventSource = null; }
   }
 
-  /* ── Progress ─────────────────────────────────────────── */
+  /* ── Прогресс ─────────────────────────────────────────── */
   _updateProgress(pct, msg, fromServer = false) {
     if (fromServer) {
       this._stopSP();
@@ -530,13 +530,13 @@ class VideoTranscriber {
   _updateStage(pct, msg) {
     const m = (msg || '').toLowerCase();
 
-    // ── 字幕路径（快速）──────────────────────────────────────
+    // ── Путь с субтитрами (быстрый) ────────────────────────────
     if (m.includes('获取成功') || m.includes('subtitle found') || m.includes('字幕获取')) {
       this.sp.stage = 'subtitle_found';
       this.sp.target = 55;
       this._setModeBadge('subtitle');
     }
-    // ── 无字幕 → 音频下载路径（慢）────────────────────────────
+    // ── Без субтитров → загрузка аудио (медленный) ─────────────
     else if (m.includes('未找到字幕') || m.includes('no subtitle') || m.includes('下载视频音频') || m.includes('下载音频')) {
       this.sp.stage = 'downloading';
       this.sp.target = 55;
@@ -556,12 +556,12 @@ class VideoTranscriber {
       this.sp.stage = 'preparing';
       this.sp.target = 40;
     }
-    // ── 通用字幕检测中 ─────────────────────────────────────────
+    // ── Обнаружение субтитров ────────────────────────────────────
     else if (m.includes('检测') && (m.includes('字幕') || m.includes('subtitle'))) {
       this.sp.stage = 'subtitle';
       this.sp.target = 40;
     }
-    // ── 其他阶段 ───────────────────────────────────────────────
+    // ── Другие этапы ─────────────────────────────────────────────
     else if (m.includes('解析') || m.includes('pars'))                     { this.sp.stage = 'parsing';       this.sp.target = 60; }
     else if (m.includes('下载') || m.includes('download'))                 { this.sp.stage = 'downloading';   this.sp.target = 60; }
     else if (m.includes('转录') || m.includes('transcrib') || m.includes('whisper')) { this.sp.stage = 'transcribing';  this.sp.target = 80; }
@@ -632,14 +632,14 @@ class VideoTranscriber {
     this.progressStatus.textContent = `${p}%`;
     this.progressFill.style.width   = `${p}%`;
 
-    // Translate common server messages — more specific checks first
+    // Перевод сообщений сервера
     const m = (msg || '').toLowerCase();
     let label = msg;
-    // ── Subtitle path ──────────────────────────────────────────
+    // ── Путь с субтитрами ──────────────────────────────────────
     if      (m.includes('获取成功') || m.includes('subtitle found'))        label = this.t('subtitle_found');
     else if (m.includes('未找到字幕') || m.includes('no subtitle'))         label = this.t('no_subtitle');
     else if (m.includes('检测') && (m.includes('字幕') || m.includes('subtitle'))) label = this.t('detecting_subtitles');
-    // ── Audio / Whisper path ────────────────────────────────────
+    // ── Путь аудио / Whisper ────────────────────────────────────
     else if (m.includes('下载') || m.includes('download'))  label = this.t('downloading_video');
     else if (m.includes('解析') || m.includes('pars'))      label = this.t('parsing_video');
     else if (m.includes('转录') || m.includes('transcrib')) label = this.t('transcribing_audio');
@@ -655,14 +655,14 @@ class VideoTranscriber {
     this.emptyState.style.display    = 'none';
     this.resultsPanel.classList.remove('show');
     this.progressPanel.classList.add('show');
-    // Reset mode badge & progress bar color for new task
+    // Сброс значка режима для новой задачи
     if (this.modeBadge) { this.modeBadge.style.display = 'none'; this.modeBadge.className = 'mode-badge'; }
     if (this.progressFill) this.progressFill.classList.remove('subtitle-mode');
   }
   _hideProgress() { this.progressPanel.classList.remove('show'); }
 
-  /* ── Results ──────────────────────────────────────────── */
-  /** 与后端 Translator.normalize_lang_code 对齐，用于 Tab 展示判断 */
+  /* ── Результаты ──────────────────────────────────────────── */
+  /** Приведение кода языка к формату для вкладок */
   _normLangTab(code) {
     if (!code) return '';
     const c = String(code).toLowerCase().trim();
@@ -694,25 +694,25 @@ class VideoTranscriber {
 
   _hideResults() { this.resultsPanel.classList.remove('show'); }
 
-  /* ── Tabs ─────────────────────────────────────────────── */
+  /* ── Вкладки ─────────────────────────────────────────────── */
   _switchTab(name) {
     this.tabBtns.forEach(b  => b.classList.toggle('active',  b.dataset.tab === name));
     this.tabPanes.forEach(p => p.classList.toggle('active', p.id === `${name}Tab`));
   }
 
-  /* ── Download ─────────────────────────────────────────── */
+  /* ── Загрузка ─────────────────────────────────────────── */
   async _downloadFile(type) {
     if (!this.currentTaskId) { this._showError(this.t('error_no_download')); return; }
     try {
       const r = await fetch(`${this.apiBase}/task-status/${this.currentTaskId}`);
-      if (!r.ok) throw new Error('Failed to get task status');
+      if (!r.ok) throw new Error('Не удалось получить статус задачи');
       const task = await r.json();
 
       let filename;
       if      (type === 'script')      filename = task.script_path      ? task.script_path.split('/').pop()      : `transcript_${task.safe_title||'x'}_${task.short_id||'x'}.md`;
       else if (type === 'summary')     filename = task.summary_path     ? task.summary_path.split('/').pop()     : `summary_${task.safe_title||'x'}_${task.short_id||'x'}.md`;
       else if (type === 'translation') filename = task.translation_path ? task.translation_path.split('/').pop() : `translation_${task.safe_title||'x'}_${task.short_id||'x'}.md`;
-      else throw new Error('Unknown type');
+      else throw new Error('Неизвестный тип');
 
       const a = document.createElement('a');
       a.href = `${this.apiBase}/download/${encodeURIComponent(filename)}`;
@@ -725,7 +725,7 @@ class VideoTranscriber {
     }
   }
 
-  /* ── UI helpers ───────────────────────────────────────── */
+  /* ── Вспомогательные функции UI ───────────────────────── */
   _setLoading(on) {
     this.submitBtn.disabled = on;
     this.submitBtn.innerHTML = on
@@ -754,7 +754,7 @@ class VideoTranscriber {
   }
 }
 
-/* ── Boot ──────────────────────────────────────────────── */
+/* ── Запуск ──────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
   window.vt = new VideoTranscriber();
 });

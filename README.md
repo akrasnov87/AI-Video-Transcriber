@@ -1,409 +1,417 @@
-<div align="center">
-
 # AI Video Transcriber
 
-English | [中文](README_ZH.md)
+ [Русский](https://github.com/akrasnov87/AI-Video-Transcriber/blob/main/README.md) | [English](https://github.com/akrasnov87/AI-Video-Transcriber/blob/main/README_EN.md) | [中文](https://github.com/akrasnov87/AI-Video-Transcriber/blob/main/README_ZH.md)
 
-An AI-powered tool to transcribe and summarize videos and podcasts — paste a URL from YouTube, TikTok, Bilibili, Apple Podcasts, SoundCloud, and 30+ platforms, **or upload a local file** (audio, video, or plain text).
+Инструмент на основе искусственного интеллекта для расшифровки и создания саммари (краткого изложения) видео и подкастов. Вставьте ссылку с YouTube, TikTok, Bilibili, Apple Podcasts, SoundCloud и более чем 30 других платформ **или загрузите локальный файл** (аудио, видео или простой текст).
 
-![Interface](en_video.png)
+## ✨ Возможности
 
-</div>
+*   🎥 **Поддержка множества платформ**: Работает с YouTube, TikTok, Bilibili, Apple Podcasts, SoundCloud и более чем 30 другими сервисами.
+*   📁 **Загрузка локальных файлов**: Перетащите или выберите файл. Поддерживаемые форматы: `.txt` (обрабатывается как текст расшифровки), `.mp3`, `.mp4`, `.m4a`, `.wav`, `.webm`, `.mkv`, `.ogg`, `.flac`. Медиафайлы нормализуются с помощью FFmpeg для Whisper; для них выполняется тот же конвейер оптимизации → перевода → создания саммари, что и для URL.
+*   ⚡ **Архитектура "Субтитры в первую очередь"**: Для платформ, имеющих собственные субтитры (например, YouTube), расшифровка извлекается мгновенно — загрузка аудио не требуется. Whisper используется только как запасной вариант, что делает весь процесс значительно быстрее.
+*   🗣️ **Интеллектуальная расшифровка**: Высокоточное преобразование речи в текст с использованием Faster-Whisper, когда субтитры недоступны.
+*   🤖 **Оптимизация текста ИИ**: Автоматическое исправление опечаток, завершение предложений и интеллектуальная разбивка на абзацы.
+*   🌍 **Многоязычные саммари**: Создание кратких интеллектуальных изложений на нескольких языках.
+*   🔧 **Используйте свою модель**: Настройте любой API-эндпоинт, совместимый с OpenAI (OpenAI, OpenRouter, локальная LLM и т.д.) прямо в интерфейсе. Введите ваш API Base URL и API Key, затем нажмите **Fetch**, чтобы автоматически найти все доступные модели и выбрать нужную.
+*   ⚙️ **Условный перевод**: Автоматически переводит расшифровку, если язык саммари отличается от исходного языка.
+*   📱 **Дружелюбность к мобильным устройствам**: Отличная поддержка мобильных устройств.
 
-## ✨ Features
+## 🚀 Быстрый старт
 
-- 🎥 **Multi-Platform Support**: Works with YouTube, TikTok, Bilibili, Apple Podcasts, SoundCloud, and 30+ more
-- 📁 **Local File Upload**: Drag-and-drop or pick a file — supported formats include `.txt` (treated as transcript text), `.mp3`, `.mp4`, `.m4a`, `.wav`, `.webm`, `.mkv`, `.ogg`, `.flac`. Media is normalized with FFmpeg for Whisper; the same optimize → translate → summarize pipeline runs as for URLs
-- ⚡ **Subtitle-First Architecture**: For platforms with native subtitles (e.g. YouTube), transcripts are extracted instantly — no audio download needed. Whisper is only used as a fallback, making the whole pipeline dramatically faster.
-- 🗣️ **Intelligent Transcription**: High-accuracy speech-to-text using Faster-Whisper when subtitles aren't available
-- 🤖 **AI Text Optimization**: Automatic typo correction, sentence completion, and intelligent paragraphing
-- 🌍 **Multi-Language Summaries**: Generate intelligent summaries in multiple languages
-- 🔧 **Bring Your Own Model**: Configure any OpenAI-compatible API endpoint (OpenAI, OpenRouter, local LLM, etc.) directly in the UI — enter your API Base URL and API Key, then click **Fetch** to auto-discover all available models and select the one you want
-- ⚙️ **Conditional Translation**: Auto-translates the transcript when the summary language differs from the source language
-- 📱 **Mobile-Friendly**: Perfect support for mobile devices
+### Предварительные требования
 
-[![Star History Chart](https://api.star-history.com/svg?repos=wendy7756/AI-Video-Transcriber&type=Date)](https://star-history.com/#wendy7756/AI-Video-Transcriber&Date)
+*   Python 3.8+
+*   FFmpeg (требуется для извлечения аудио через yt-dlp и для нормализации загруженных медиафайлов)
+*   API-ключ от любого провайдера, совместимого с OpenAI (OpenAI, OpenRouter и т.д.) — настраивается прямо в интерфейсе, переменная окружения на сервере не требуется.
 
-## 🚀 Quick Start
+### Установка
 
-### Prerequisites
-
-- Python 3.8+
-- FFmpeg (required for yt-dlp audio extraction and for normalizing uploaded media)
-- An API key from any OpenAI-compatible provider (OpenAI, OpenRouter, etc.) — configured directly in the UI, no server-side env var needed
-
-### Installation
-
-#### Method 1: Automatic Installation
+#### Способ 1: Автоматическая установка
 
 ```bash
-# Clone the repository
+# Клонируйте репозиторий
 git clone https://github.com/wendy7756/AI-Video-Transcriber.git
 cd AI-Video-Transcriber
 
-# Run installation script
+# Запустите скрипт установки
 chmod +x install.sh
 ./install.sh
 ```
 
-#### Method 2: Docker
+#### Способ 2: Docker
 
 ```bash
-# Clone the repository
+# Клонируйте репозиторий
 git clone https://github.com/wendy7756/AI-Video-Transcriber.git
 cd AI-Video-Transcriber
 
-# Using Docker Compose (easiest)
+# Используя Docker Compose (проще всего)
 cp .env.example .env
-# Edit .env file if you want server-side defaults (optional)
+# Отредактируйте файл .env, если хотите задать значения по умолчанию на сервере (опционально)
 docker-compose up -d
 
-# Or using Docker directly
+# Или используя Docker напрямую
 docker build -t ai-video-transcriber .
 docker run -p 8000:8000 --env-file .env ai-video-transcriber
 ```
 
-The image uses **Python 3.12** (Debian Bookworm), upgrades `pip`/`setuptools`/`wheel`, then installs from `requirements.txt` — same version constraints as a fresh local venv on a current Python.
+Образ использует **Python 3.12** (Debian Bookworm), обновляет `pip`/`setuptools`/`wheel`, а затем устанавливает зависимости из `requirements.txt` — те же ограничения версий, что и в свежем локальном виртуальном окружении на актуальном Python.
 
-#### Method 3: Manual Installation
+#### Способ 3: Ручная установка
 
-1. **Install Python Dependencies**
-```bash
-# macOS (PEP 668) strongly recommends using a virtualenv
-python3 -m venv venv
-source venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
+1.  **Установите зависимости Python**
 
-2. **Install FFmpeg**
-```bash
-# macOS
-brew install ffmpeg
+    ```bash
+    # macOS (PEP 668) настоятельно рекомендует использовать virtualenv
+    python3 -m venv venv
+    source venv/bin/activate
+    python -m pip install --upgrade pip
+    pip install -r requirements.txt
+    ```
 
-# Ubuntu/Debian
-sudo apt update && sudo apt install ffmpeg
+2.  **Установите FFmpeg**
 
-# CentOS/RHEL
-sudo yum install ffmpeg
-```
+    ```bash
+    # macOS
+    brew install ffmpeg
 
-3. **Configure Environment Variables** *(optional)*
-```bash
-# If you prefer server-side defaults, set these — otherwise configure via the UI
-export OPENAI_API_KEY="your_api_key_here"
-export OPENAI_BASE_URL="https://openrouter.ai/api/v1"  # any OpenAI-compatible endpoint
-```
+    # Ubuntu/Debian
+    sudo apt update && sudo apt install ffmpeg
 
-### Start the Service
+    # CentOS/RHEL
+    sudo yum install ffmpeg
+    ```
+
+3.  **Настройте переменные окружения** _(опционально)_
+
+    ```bash
+    # Если вы предпочитаете задать значения по умолчанию на сервере, установите их здесь.
+    # В противном случае настройте всё через интерфейс.
+    export OPENAI_API_KEY="ваш_api_ключ_здесь"
+    export OPENAI_BASE_URL="https://openrouter.ai/api/v1" # любой эндпоинт, совместимый с OpenAI
+    ```
+
+### Запустите сервис
 
 ```bash
 python3 start.py
 ```
 
-After the service starts, open your browser and visit `http://localhost:8000`
+После запуска сервиса откройте браузер и перейдите по адресу `http://localhost:8000`
 
-#### Production Mode (Recommended for long videos)
+#### Производственный режим (рекомендуется для длинных видео)
 
-To avoid SSE disconnections during long processing, start in production mode (hot-reload disabled):
+Чтобы избежать разрывов SSE-соединения во время длительной обработки, запустите в производственном режиме (горячая перезагрузка отключена):
 
 ```bash
 python3 start.py --prod
 ```
 
-This keeps the SSE connection stable throughout long tasks (30–60+ min).
+Это обеспечивает стабильность SSE-соединения на протяжении долгих задач (30–60+ минут).
 
-#### Run with explicit env (example)
+#### Запуск с явными переменными окружения (пример)
 
 ```bash
 source venv/bin/activate
-export OPENAI_API_KEY=your_api_key_here         # optional: server-side default
-# export OPENAI_BASE_URL=https://openrouter.ai/api/v1  # optional: server-side default
+export OPENAI_API_KEY=ваш_api_ключ_здесь         # опционально: значение по умолчанию на сервере
+# export OPENAI_BASE_URL=https://openrouter.ai/api/v1  # опционально: значение по умолчанию на сервере
 python3 start.py --prod
 ```
 
-## 📖 Usage Guide
+## 📖 Руководство по использованию
 
-1. **Choose input — URL or file**
-   - **Video / podcast URL**: Paste a link from YouTube, Bilibili, or any other supported platform into the input field
-   - **Local file**: Drag a file onto the dashed upload area (or click to browse). Same **Transcribe** button starts the job; uploads use the same API route as URLs (`POST /api/process-video` with multipart `file`), which helps when a reverse proxy only allows that path
-2. **Select Summary Language**: Choose the output language from the dropdown next to the input area
-3. **(Optional) Configure AI Model**: Click **AI Settings** to expand the panel
-   - Enter your **API Base URL** (e.g. `https://openrouter.ai/api/v1`) and **API Key**
-   - Click **Fetch** to auto-load all models from that provider
-   - Select the model you want — or leave blank to use the server default
-4. **Start Processing**: Click the **Transcribe** button. For **URL** jobs, the progress bar shows which mode is active:
-   - **⚡ Subtitle** (green) — native subtitles found, transcript extracted in seconds
-   - **🎙 Whisper** (amber) — no subtitles available, downloading audio for transcription
-   For **local uploads**, media is normalized with FFmpeg then transcribed with Whisper; plain **`.txt`** files skip download/Whisper and go straight into the text pipeline (optimize → summary, and translation when languages differ).
-5. **View Results**: Review the optimized transcript and AI summary
-   - If transcript language ≠ selected summary language, a **Translation** tab appears automatically
-6. **Download Files**: Save Markdown-formatted files (Transcript / Translation / Summary)
+1.  **Выберите источник — URL или файл**
+    *   **URL видео/подкаста**: Вставьте ссылку с YouTube, Bilibili или любой другой поддерживаемой платформы в поле ввода.
+    *   **Локальный файл**: Перетащите файл в пунктирную область загрузки (или нажмите для выбора файла). Нажмите ту же кнопку **Transcribe**, чтобы начать обработку. Загрузки используют тот же маршрут API, что и URL (`POST /api/process-video` с multipart `file`), что полезно, если обратный прокси-сервер разрешает только этот путь.
+2.  **Выберите язык саммари**: Выберите язык итогового изложения из выпадающего списка рядом с полем ввода.
+3.  **(Опционально) Настройте модель ИИ**: Нажмите **AI Settings**, чтобы развернуть панель.
+    *   Введите ваш **API Base URL** (например, `https://openrouter.ai/api/v1`) и **API Key**.
+    *   Нажмите **Fetch**, чтобы автоматически загрузить все доступные модели от этого провайдера.
+    *   Выберите нужную модель или оставьте поле пустым, чтобы использовать серверную модель по умолчанию.
+4.  **Начните обработку**: Нажмите кнопку **Transcribe**. Для задач с **URL** индикатор прогресса показывает, какой режим активен:
+    *   **⚡ Субтитры** (зеленый) — найдены встроенные субтитры, расшифровка извлечена за секунды.
+    *   **🎙 Whisper** (янтарный) — субтитры недоступны, выполняется загрузка аудио для расшифровки.
+    Для **локальных загрузок** медиа нормализуется с помощью FFmpeg, а затем расшифровывается через Whisper; простые **`.txt`** файлы пропускают этапы загрузки и Whisper и сразу переходят в текстовый конвейер (оптимизация → саммари, и перевод, если языки различаются).
+5.  **Просмотрите результаты**: Ознакомьтесь с оптимизированной расшифровкой и саммари от ИИ.
+    *   Если язык расшифровки ≠ выбранному языку саммари, автоматически появляется вкладка **Translation**.
+6.  **Скачайте файлы**: Сохраните файлы в формате Markdown (Расшифровка / Перевод / Саммари).
 
-## 🛠️ Technical Architecture
+## 🛠️ Техническая архитектура
 
-### Backend Stack
-- **FastAPI**: Modern Python web framework
-- **yt-dlp**: Video downloading and processing
-- **FFmpeg**: Audio extraction and local upload normalization (mono 16 kHz for Whisper)
-- **Faster-Whisper**: Efficient speech transcription
-- **OpenAI API**: Intelligent text summarization
+### Бэкенд
 
-### Frontend Stack
-- **HTML5 + CSS3**: Responsive interface design
-- **JavaScript (ES6+)**: Modern frontend interactions
-- **Marked.js**: Markdown rendering
-- **Font Awesome**: Icon library
+*   **FastAPI**: Современный веб-фреймворк для Python.
+*   **yt-dlp**: Загрузка и обработка видео.
+*   **FFmpeg**: Извлечение аудио и нормализация загружаемых медиафайлов (моно, 16 кГц для Whisper).
+*   **Faster-Whisper**: Эффективная расшифровка речи.
+*   **OpenAI API**: Интеллектуальное создание саммари.
 
-### Project Structure
+### Фронтенд
+
+*   **HTML5 + CSS3**: Адаптивный дизайн интерфейса.
+*   **JavaScript (ES6+)**: Современная логика фронтенда.
+*   **Marked.js**: Рендеринг Markdown.
+*   **Font Awesome**: Библиотека иконок.
+
+### Структура проекта
+
 ```
 AI-Video-Transcriber/
-├── backend/                 # Backend code
-│   ├── main.py             # FastAPI main application
-│   ├── video_processor.py  # Video processing module
-│   ├── transcriber.py      # Transcription module
-│   ├── summarizer.py       # Summary module
-│   ├── translator.py       # Translation module
-│   └── llm_sanitize.py     # Post-process LLM outputs (strip boilerplate)
-├── static/                 # Frontend files
-│   ├── index.html          # Main page
-│   └── app.js              # Frontend logic
-├── temp/                   # Temporary files directory
-├── Dockerfile              # Docker image configuration
-├── docker-compose.yml      # Docker Compose configuration
-├── .dockerignore           # Docker ignore rules
-├── .env.example            # Environment variables template
-├── requirements.txt        # Python dependencies
-├── start.py               # Startup script
-└── README.md              # Project documentation
+├── backend/                 # Бэкенд код
+│   ├── main.py             # Основное приложение FastAPI
+│   ├── video_processor.py  # Модуль обработки видео
+│   ├── transcriber.py      # Модуль расшифровки
+│   ├── summarizer.py       # Модуль создания саммари
+│   ├── translator.py       # Модуль перевода
+│   └── llm_sanitize.py     # Пост-обработка выводов LLM (удаление шаблонного текста)
+├── static/                 # Фронтенд файлы
+│   ├── index.html          # Главная страница
+│   └── app.js              # Логика фронтенда
+├── temp/                   # Директория для временных файлов
+├── Dockerfile              # Конфигурация Docker образа
+├── docker-compose.yml      # Конфигурация Docker Compose
+├── .dockerignore           # Правила игнорирования для Docker
+├── .env.example            # Шаблон переменных окружения
+├── requirements.txt        # Зависимости Python
+├── start.py                # Скрипт запуска
+└── README.md               # Документация проекта
 ```
 
-## ⚙️ Configuration Options
+## ⚙️ Настройка
 
-### Environment Variables
+### Переменные окружения
 
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `OPENAI_API_KEY` | API key (server-side default) | - | No — can be set in UI instead |
-| `HOST` | Server address | `0.0.0.0` | No |
-| `PORT` | Server port | `8000` | No |
-| `WHISPER_MODEL_SIZE` | Whisper model size | `base` | No |
-| `UPLOAD_MAX_MB` | Maximum upload size for local files (MB) | `200` | No |
+| Переменная | Описание | Значение по умолчанию | Обязательная |
+| :--- | :--- | :--- | :--- |
+| `OPENAI_API_KEY` | API-ключ (значение по умолчанию на сервере) | - | Нет — можно задать в интерфейсе |
+| `HOST` | Адрес сервера | `0.0.0.0` | Нет |
+| `PORT` | Порт сервера | `8000` | Нет |
+| `WHISPER_MODEL_SIZE` | Размер модели Whisper | `base` | Нет |
+| `UPLOAD_MAX_MB` | Максимальный размер загружаемого локального файла (МБ) | `200` | Нет |
 
-An optional dedicated endpoint `POST /api/process-upload` exists with the same behavior as sending `file` to `/api/process-video`.
+Существует опциональный выделенный эндпоинт `POST /api/process-upload` с тем же поведением, что и отправка `file` в `/api/process-video`.
 
-### Whisper Model Size Options
+### Доступные размеры модели Whisper
 
-| Model | Parameters | English-only | Multilingual | Speed | Memory Usage |
-|-------|------------|--------------|--------------|-------|--------------|
-| tiny | 39 M | ✓ | ✓ | Fast | Low |
-| base | 74 M | ✓ | ✓ | Medium | Low |
-| small | 244 M | ✓ | ✓ | Medium | Medium |
-| medium | 769 M | ✓ | ✓ | Slow | Medium |
-| large | 1550 M | ✗ | ✓ | Very Slow | High |
+| Модель | Параметры | Только английский | Многоязычная | Скорость | Использование памяти |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| tiny | 39 M | ✓ | ✓ | Быстрая | Низкое |
+| base | 74 M | ✓ | ✓ | Средняя | Низкое |
+| small | 244 M | ✓ | ✓ | Средняя | Среднее |
+| medium | 769 M | ✓ | ✓ | Медленная | Среднее |
+| large | 1550 M | ✗ | ✓ | Очень медленная | Высокое |
 
-## 🔧 FAQ
+## 🔧 Часто задаваемые вопросы (FAQ)
 
-### Q: Why is transcription slow?
-A: Transcription speed depends on video length, Whisper model size, and hardware performance. Try using smaller models (like tiny or base) to improve speed.
+### В: Почему расшифровка происходит медленно?
 
-### Q: Which video platforms are supported?
-A: All platforms supported by yt-dlp, including but not limited to: YouTube, TikTok, Facebook, Instagram, Twitter, Bilibili, Youku, iQiyi, Tencent Video, etc.
+**О:** Скорость расшифровки зависит от длины видео, размера модели Whisper и производительности аппаратного обеспечения. Попробуйте использовать модели поменьше (например, tiny или base), чтобы увеличить скорость.
 
-### Q: What local file types and size limits apply?
-A: Allowed extensions include `.txt`, `.mp3`, `.mp4`, `.m4a`, `.wav`, `.webm`, `.mkv`, `.ogg`, `.flac`. Default max size is **200 MB** per file; override with the `UPLOAD_MAX_MB` environment variable on the server.
+### В: Какие видеоплатформы поддерживаются?
 
-### Q: What if the AI optimization features are unavailable?
-A: AI features require an API key from any OpenAI-compatible provider (OpenAI, OpenRouter, etc.). You can enter it directly in the **AI Settings** panel in the UI — no server restart needed. Alternatively, set `OPENAI_API_KEY` as an environment variable for a server-side default.
+**О:** Все платформы, поддерживаемые yt-dlp, включая, но не ограничиваясь: YouTube, TikTok, Facebook, Instagram, Twitter, Bilibili, Youku, iQiyi, Tencent Video и другие.
 
-### Q: I get HTTP 500 errors when starting/using the service. Why?
-A: In most cases this is an environment configuration issue rather than a code bug. Please check:
-- Ensure a virtualenv is activated: `source venv/bin/activate`
-- Install deps inside the venv: `pip install -r requirements.txt`
-- Configure your API key in the **AI Settings** panel, or set `OPENAI_API_KEY` as an env var
-- Install FFmpeg: `brew install ffmpeg` (macOS) / `sudo apt install ffmpeg` (Debian/Ubuntu)
-- If port 8000 is occupied, stop the old process or change `PORT`
+### В: Какие типы локальных файлов и ограничения по размеру поддерживаются?
 
-### Q: How to handle long videos?
-A: The system can process videos of any length, but processing time will increase accordingly. For very long videos, consider using smaller Whisper models.
+**О:** Разрешенные расширения: `.txt`, `.mp3`, `.mp4`, `.m4a`, `.wav`, `.webm`, `.mkv`, `.ogg`, `.flac`. Максимальный размер по умолчанию — **200 МБ** на файл. Его можно изменить с помощью переменной окружения `UPLOAD_MAX_MB` на сервере.
 
-### Q: How to use Docker for deployment?
-A: Docker provides the easiest deployment method:
+### В: Что делать, если функции оптимизации ИИ недоступны?
 
-**Prerequisites:**
-- Install Docker Desktop from https://www.docker.com/products/docker-desktop/
-- Ensure Docker service is running
+**О:** Функции ИИ требуют API-ключа от провайдера, совместимого с OpenAI (OpenAI, OpenRouter и т.д.). Вы можете ввести его прямо на панели **AI Settings** в интерфейсе — перезапуск сервера не требуется. Как вариант, вы можете установить `OPENAI_API_KEY` как переменную окружения для задания значения по умолчанию на сервере.
 
-**Quick Start:**
+### В: Я получаю HTTP 500 ошибки при запуске или использовании сервиса. Почему?
+
+**О:** В большинстве случаев это проблема конфигурации окружения, а не ошибка в коде. Пожалуйста, проверьте:
+
+*   Активировано ли виртуальное окружение: `source venv/bin/activate`
+*   Установлены ли зависимости внутри виртуального окружения: `pip install -r requirements.txt`
+*   Настроен ли ваш API-ключ на панели **AI Settings** или через переменную окружения `OPENAI_API_KEY`
+*   Установлен ли FFmpeg: `brew install ffmpeg` (macOS) / `sudo apt install ffmpeg` (Debian/Ubuntu)
+*   Если порт 8000 занят, остановите старый процесс или измените `PORT`
+
+### В: Как обрабатываются длинные видео?
+
+**О:** Система может обрабатывать видео любой длины, но время обработки будет увеличиваться соответственно. Для очень длинных видео рассмотрите возможность использования меньших моделей Whisper.
+
+### В: Как использовать Docker для развертывания?
+
+**О:** Docker предоставляет самый простой способ развертывания.
+
+**Предварительные требования:**
+*   Установите Docker Desktop с https://www.docker.com/products/docker-desktop/
+*   Убедитесь, что служба Docker запущена.
+
+**Быстрый старт:**
 ```bash
-# Clone and setup
+# Клонирование и настройка
 git clone https://github.com/wendy7756/AI-Video-Transcriber.git
 cd AI-Video-Transcriber
 cp .env.example .env
-# Edit .env file to set server-side defaults (optional)
+# Отредактируйте файл .env для установки значений по умолчанию на сервере (опционально)
 
-# Start with Docker Compose (recommended)
+# Запуск с помощью Docker Compose (рекомендуется)
 docker-compose up -d
 
-# Or build and run manually
+# Или ручная сборка и запуск
 docker build -t ai-video-transcriber .
 docker run -p 8000:8000 --env-file .env ai-video-transcriber
 ```
 
-**Common Docker Issues:**
-- **Port conflict**: Change port mapping `-p 8001:8000` if 8000 is occupied
-- **Permission denied**: Ensure Docker Desktop is running and you have proper permissions
-- **Build fails**: Check disk space (need ~2GB free) and network connection
-- **Container won't start**: Check Docker logs with `docker logs <container_id>`
+**Распространенные проблемы с Docker:**
+*   **Конфликт портов**: Измените маппинг портов `-p 8001:8000`, если порт 8000 занят.
+*   **Отказ в доступе**: Убедитесь, что Docker Desktop запущен и у вас есть соответствующие разрешения.
+*   **Ошибка сборки**: Проверьте свободное место на диске (требуется ~2 ГБ) и сетевое соединение.
+*   **Контейнер не запускается**: Проверьте логи Docker с помощью `docker logs <container_id>`.
 
-**Docker Commands:**
+**Команды Docker:**
 ```bash
-# View running containers
+# Просмотр запущенных контейнеров
 docker ps
 
-# Check container logs
+# Просмотр логов контейнера
 docker logs ai-video-transcriber-ai-video-transcriber-1
 
-# Stop service
+# Остановка сервиса
 docker-compose down
 
-# Rebuild after changes
+# Пересборка после изменений
 docker-compose build --no-cache
 ```
 
-### Q: What are the memory requirements?
-A: Memory usage varies depending on the deployment method and workload:
+### В: Каковы требования к памяти?
 
-**Docker Deployment:**
-- **Base memory**: ~128MB for idle container
-- **During processing**: 500MB - 2GB depending on video length and Whisper model
-- **Docker image size**: ~1.6GB disk space required
-- **Recommended**: 4GB+ RAM for smooth operation
+**О:** Использование памяти зависит от метода развертывания и рабочей нагрузки.
 
-**Traditional Deployment:**
-- **Base memory**: ~50-100MB for FastAPI server
-- **Whisper models memory usage**:
-  - `tiny`: ~150MB
-  - `base`: ~250MB  
-  - `small`: ~750MB
-  - `medium`: ~1.5GB
-  - `large`: ~3GB
-- **Peak usage**: Base + Model + Video processing (~500MB additional)
+**Развертывание с Docker:**
+*   **Базовая память**: ~128 МБ для бездействующего контейнера.
+*   **Во время обработки**: 500 МБ - 2 ГБ в зависимости от длины видео и модели Whisper.
+*   **Размер Docker образа**: Требуется ~1.6 ГБ дискового пространства.
+*   **Рекомендуется**: 4 ГБ+ ОЗУ для стабильной работы.
 
-**Memory Optimization Tips:**
+**Традиционное развертывание:**
+*   **Базовая память**: ~50-100 МБ для FastAPI сервера.
+*   **Использование памяти моделями Whisper**:
+    *   `tiny`: ~150 МБ
+    *   `base`: ~250 МБ
+    *   `small`: ~750 МБ
+    *   `medium`: ~1.5 ГБ
+    *   `large`: ~3 ГБ
+*   **Пиковое использование**: База + Модель + Обработка видео (~500 МБ дополнительно).
+
+**Советы по оптимизации памяти:**
 ```bash
-# Use smaller Whisper model to reduce memory usage
-WHISPER_MODEL_SIZE=tiny  # or base
+# Используйте меньшую модель Whisper для снижения использования памяти
+WHISPER_MODEL_SIZE=tiny  # или base
 
-# For Docker, limit container memory if needed
+# Для Docker, при необходимости ограничьте память контейнера
 docker run -m 1g -p 8000:8000 --env-file .env ai-video-transcriber
 
-# Monitor memory usage
+# Мониторинг использования памяти
 docker stats ai-video-transcriber-ai-video-transcriber-1
 ```
 
-### Q: Network connection errors or timeouts?
-A: If you encounter network-related errors during video downloading or API calls, try these solutions:
+### В: Ошибки сетевого соединения или тайм-ауты?
 
-**Common Network Issues:**
-- Video download fails with "Unable to extract" or timeout errors
-- OpenAI API calls return connection timeout or DNS resolution failures
-- Docker image pull fails or is extremely slow
+**О:** Если вы сталкиваетесь с сетевыми ошибками во время загрузки видео или вызовов API, попробуйте следующие решения:
 
-**Solutions:**
-1. **Switch VPN/Proxy**: Try connecting to a different VPN server or switch your proxy settings
-2. **Check Network Stability**: Ensure your internet connection is stable
-3. **Retry After Network Change**: Wait 30-60 seconds after changing network settings before retrying
-4. **Use Alternative Endpoints**: If using custom OpenAI endpoints, verify they're accessible from your network
-5. **Docker Network Issues**: Restart Docker Desktop if container networking fails
+**Распространенные сетевые проблемы:**
+*   Загрузка видео завершается с ошибкой "Unable to extract" или тайм-аутом.
+*   Вызовы OpenAI API возвращают тайм-аут соединения или ошибки разрешения DNS.
+*   Загрузка Docker образа не удается или происходит крайне медленно.
 
-**Quick Network Test:**
+**Решения:**
+1.  **Переключите VPN/Прокси**: Попробуйте подключиться к другому VPN-серверу или изменить настройки прокси.
+2.  **Проверьте стабильность сети**: Убедитесь, что ваше интернет-соединение стабильно.
+3.  **Повторите попытку после смены сети**: Подождите 30-60 секунд после изменения сетевых настроек перед повторной попыткой.
+4.  **Используйте альтернативные эндпоинты**: Если вы используете пользовательские эндпоинты OpenAI, убедитесь, что они доступны из вашей сети.
+5.  **Проблемы с сетью Docker**: Перезапустите Docker Desktop, если сетевое взаимодействие контейнеров не работает.
+
+**Быстрый тест сети:**
 ```bash
-# Test video platform access
+# Проверка доступа к видеоплатформе
 curl -I https://www.youtube.com/
 
-# Test your AI provider endpoint
+# Проверка вашего эндпоинта AI-провайдера
 curl -I https://openrouter.ai
 
-# Test Docker Hub access
+# Проверка доступа к Docker Hub
 docker pull hello-world
 ```
 
-## 🎯 Supported Languages
+## 🎯 Поддерживаемые языки
 
-### Transcription
-- Supports 100+ languages through Whisper
-- Automatic language detection
-- High accuracy for major languages
+### Расшифровка
+*   Поддерживает 100+ языков через Whisper.
+*   Автоматическое определение языка.
+*   Высокая точность для основных языков.
 
-### Summary Generation
-- English
-- Chinese (Simplified)
-- Japanese
-- Korean
-- Spanish
-- French
-- German
-- Portuguese
-- Russian
-- Arabic
-- And more...
+### Создание саммари
+*   Английский
+*   Китайский (упрощенный)
+*   Японский
+*   Корейский
+*   Испанский
+*   Французский
+*   Немецкий
+*   Португальский
+*   Русский
+*   Арабский
+*   И другие...
 
-## 📈 Performance Tips
+## 📈 Советы по производительности
 
-- **Hardware Requirements**:
-  - Minimum: 4GB RAM, dual-core CPU
-  - Recommended: 8GB RAM, quad-core CPU
-  - Ideal: 16GB RAM, multi-core CPU, SSD storage
+*   **Аппаратные требования**:
+    *   Минимальные: 4 ГБ ОЗУ, двухъядерный CPU.
+    *   Рекомендуемые: 8 ГБ ОЗУ, четырехъядерный CPU.
+    *   Идеальные: 16 ГБ ОЗУ, многоядерный CPU, SSD-накопитель.
+*   **Оценка времени обработки**:
 
-- **Processing Time Estimates**:
+| Длина видео | Режим субтитров | Режим Whisper | Примечания |
+| :--- | :--- | :--- | :--- |
+| 1 минута | ~5 с | 30 с–1 мин | Режиму субтитров не нужна загрузка аудио |
+| 5 минут | ~10 с | 2–5 мин | Автоматические субтитры YouTube активируют режим субтитров |
+| 15 минут | ~15 с | 5–15 мин | Большинство видео на YouTube поддерживают режим субтитров |
+| 30+ минут | ~20 с | 15–60 мин | Подкасты/только аудио всегда используют Whisper |
 
-  | Video Length | Subtitle Mode | Whisper Mode | Notes |
-  |-------------|---------------|--------------|-------|
-  | 1 minute | ~5s | 30s–1 min | Subtitle mode needs no audio download |
-  | 5 minutes | ~10s | 2–5 min | YouTube auto-captions trigger subtitle mode |
-  | 15 minutes | ~15s | 5–15 min | Most YouTube videos support subtitle mode |
-  | 30+ minutes | ~20s | 15–60 min | Podcast/audio-only always uses Whisper |
+## 🤝 Вклад в проект
 
-## 🤝 Contributing
+Мы приветствуем сообщения об ошибках (Issues) и запросы на включение изменений (Pull Requests)!
 
-We welcome Issues and Pull Requests!
+1.  Сделайте форк проекта.
+2.  Создайте ветку для новой функции (`git checkout -b feature/AmazingFeature`).
+3.  Зафиксируйте ваши изменения (`git commit -m 'Add some AmazingFeature'`).
+4.  Отправьте изменения в вашу ветку (`git push origin feature/AmazingFeature`).
+5.  Откройте запрос на включение (Pull Request).
 
-1. Fork the project
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+## Благодарности
 
+*   [yt-dlp](https://github.com/yt-dlp/yt-dlp) — Мощный инструмент для загрузки видео.
+*   [Faster-Whisper](https://github.com/SYSTRAN/faster-whisper) — Эффективная реализация Whisper.
+*   [FastAPI](https://fastapi.tiangolo.com/) — Современный веб-фреймворк для Python.
+*   [OpenAI](https://openai.com/) — API для интеллектуальной обработки текста.
 
-## Acknowledgments
+## 📞 Контакты
 
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) - Powerful video downloading tool
-- [Faster-Whisper](https://github.com/guillaumekln/faster-whisper) - Efficient Whisper implementation
-- [FastAPI](https://fastapi.tiangolo.com/) - Modern Python web framework
-- [OpenAI](https://openai.com/) - Intelligent text processing API
-
-## 📞 Contact
-
-For questions or suggestions, please submit an Issue or contact Wendy.
+По вопросам или предложениям, пожалуйста, создайте Issue или свяжитесь с Wendy.
 
 ---
 
-## 🚀 Try the Full Product — sipsip.ai
+## 🚀 Попробуйте полную версию продукта — sipsip.ai
 
-This tool is the open-source part of **[sipsip.ai](https://sipsip.ai)**.
+Этот инструмент является открытой частью **sipsip.ai**.
 
-The full product goes further:
-- 📧 **Daily email briefs** — follow your favorite creators and get an AI-curated digest in your inbox every morning
-- ⚡ Transcribe & summarize any video or podcast on demand
-- 🌐 Multi-language support across all features
+Полная версия продукта предлагает больше возможностей:
 
-**Free to start** — no credit card required.
+*   📧 **Ежедневные email-дайджесты** — подпишитесь на любимых авторов и получайте ИИ-подборку контента каждое утро.
+*   ⚡ Расшифровывайте и создавайте саммари любых видео и подкастов по запросу.
+*   🌐 Многоязычная поддержка во всех функциях.
+
+**Начните бесплатно** — кредитная карта не требуется.
 
 ➡️ [sipsip.ai](https://sipsip.ai)
 
 ---
 
-## ⭐ Star History
+## ⭐ История звезд
 
-If you find this project helpful, please consider giving it a star!
+Если этот проект оказался для вас полезным, пожалуйста, поставьте ему звезду на GitHub!

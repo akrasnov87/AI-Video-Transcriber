@@ -8,37 +8,37 @@ from llm_sanitize import strip_llm_artifacts
 logger = logging.getLogger(__name__)
 
 class Summarizer:
-    """文本总结器，使用OpenAI API生成多语言摘要"""
+    """Текстовый суммаризатор, использующий OpenAI API для создания многоязычных резюме"""
     
     def __init__(self, api_key: str = None, base_url: str = None, model: str = None):
         """
-        初始化总结器。
+        Инициализация суммаризатора.
 
-        优先级：参数 > 环境变量。
-        model 指定时会同时作为 fast_model 和 advanced_model 使用。
+        Приоритет: параметры > переменные окружения.
+        Если указан model, он используется как для fast_model, так и для advanced_model.
         """
         effective_key = api_key or os.getenv("OPENAI_API_KEY")
         effective_url = base_url or os.getenv("OPENAI_BASE_URL")
 
         if not effective_key:
-            logger.warning("未设置OPENAI_API_KEY环境变量，将无法使用摘要功能")
+            logger.warning("OPENAI_API_KEY не установлен, функция создания резюме будет недоступна")
 
         if effective_key:
             kwargs = {"api_key": effective_key}
             if effective_url:
                 kwargs["base_url"] = effective_url
-                logger.info(f"OpenAI客户端已初始化，base_url={effective_url}")
+                logger.info(f"Клиент OpenAI инициализирован, base_url={effective_url}")
             else:
-                logger.info("OpenAI客户端已初始化，使用默认端点")
+                logger.info("Клиент OpenAI инициализирован, используется стандартный эндпоинт")
             self.client = openai.OpenAI(**kwargs)
         else:
             self.client = None
 
-        # 允许前端指定模型，覆盖硬编码的 gpt-3.5-turbo / gpt-4o
+        # Возможность указать модель на фронтенде, переопределяя жестко заданные gpt-3.5-turbo / gpt-4o
         self.fast_model     = model or "gpt-3.5-turbo"
         self.advanced_model = model or "gpt-4o"
         
-        # 支持的语言映射
+        # Поддерживаемые языки
         self.language_map = {
             "en": "English",
             "zh": "中文（简体）",
@@ -55,53 +55,52 @@ class Summarizer:
     
     async def optimize_transcript(self, raw_transcript: str) -> str:
         """
-        优化转录文本：修正错别字，按含义分段
-        支持长文本自动分块处理
+        Оптимизация текста транскрипции: исправление опечаток, разделение на абзацы по смыслу
+        Поддерживает автоматическую обработку длинных текстов по частям
         
         Args:
-            raw_transcript: 原始转录文本
+            raw_transcript: Исходный текст транскрипции
             
         Returns:
-            优化后的转录文本（Markdown格式）
+            Оптимизированный текст транскрипции (в формате Markdown)
         """
         try:
             if not self.client:
-                logger.warning("OpenAI API不可用，返回原始转录")
+                logger.warning("OpenAI API недоступен, возвращена исходная транскрипция")
                 return raw_transcript
 
-            # 预处理：仅移除时间戳与元信息，保留全部口语/重复内容
+            # Предобработка: удаление временных меток и метаданных
             preprocessed = self._remove_timestamps_and_meta(raw_transcript)
-            # 使用JS策略：按字符长度分块（更贴近tokens上限，避免估算误差）
             detected_lang_code = self._detect_transcript_language(preprocessed)
-            max_chars_per_chunk = 4000  # 对齐JS：每块最大约4000字符
+            max_chars_per_chunk = 4000  # Максимум символов на блок
 
             if len(preprocessed) > max_chars_per_chunk:
-                logger.info(f"文本较长({len(preprocessed)} chars)，启用分块优化")
+                logger.info(f"Длинный текст ({len(preprocessed)} символов), включена пофрагментная обработка")
                 return await self._format_long_transcript_in_chunks(preprocessed, detected_lang_code, max_chars_per_chunk)
             else:
                 return await self._format_single_chunk(preprocessed, detected_lang_code)
 
         except Exception as e:
-            logger.error(f"优化转录文本失败: {str(e)}")
-            logger.info("返回原始转录文本")
+            logger.error(f"Ошибка оптимизации транскрипции: {str(e)}")
+            logger.info("Возвращена исходная транскрипция")
             return raw_transcript
 
     def _estimate_tokens(self, text: str) -> int:
         """
-        改进的token数量估算算法
-        更保守的估算，考虑系统prompt和格式化开销
+        Улучшенный алгоритм оценки количества токенов
+        Более консервативная оценка с учетом системного промпта и форматирования
         """
-        # 更保守的估算：考虑实际使用中的token膨胀
+        # Более консервативная оценка с учетом реального расширения токенов
         chinese_chars = sum(1 for char in text if '\u4e00' <= char <= '\u9fff')
         english_words = len([word for word in text.split() if word.isascii() and word.isalpha()])
         
-        # 计算基础tokens
+        # Базовые токены
         base_tokens = chinese_chars * 1.5 + english_words * 1.3
         
-        # 考虑markdown格式、时间戳等开销（约30%额外开销）
+        # Учет разметки Markdown, временных меток и т.д. (~30% дополнительных затрат)
         format_overhead = len(text) * 0.15
         
-        # 考虑系统prompt开销（约2000-3000 tokens）
+        # Учет системного промпта (~2000-3000 токенов)
         system_prompt_overhead = 2500
         
         total_estimated = int(base_tokens + format_overhead + system_prompt_overhead)
@@ -110,68 +109,68 @@ class Summarizer:
 
     async def _optimize_single_chunk(self, raw_transcript: str) -> str:
         """
-        优化单个文本块
+        Оптимизация одного текстового блока
         """
         detected_lang = self._detect_transcript_language(raw_transcript)
         lang_instruction = self._get_language_instruction(detected_lang)
         
-        system_prompt = f"""你是一个专业的文本编辑专家。请对提供的视频转录文本进行优化处理。
+        system_prompt = f"""Вы профессиональный редактор текста. Оптимизируйте предоставленный текст транскрипции видео.
 
-特别注意：这可能是访谈、对话或演讲，如果包含多个说话者，必须保持每个说话者的原始视角。
+Особое внимание: это может быть интервью, диалог или выступление. Если присутствует несколько говорящих, необходимо строго сохранять исходную перспективу каждого говорящего.
 
-要求：
-1. **严格保持原始语言({lang_instruction})，绝对不要翻译成其他语言**
-2. **完全移除所有时间戳标记（如 [00:00 - 00:05]）**
-3. **智能识别和重组被时间戳拆分的完整句子**，语法上不完整的句子片段需要与上下文合并
-4. 修正明显的错别字和语法错误
-5. 将重组后的完整句子按照语义和逻辑含义分成自然的段落
-6. 段落之间用空行分隔
-7. **严格保持原意不变，不要添加或删除实际内容**
-8. **绝对不要改变人称代词（如I/我、you/你、he/他、she/她等）**
-9. **保持每个说话者的原始视角和语境**
-10. **识别对话结构：访谈者用"you"，被访者用"I/we"，绝不混淆**
-11. 确保每个句子语法完整，语言流畅自然
+Требования:
+1. **Строго сохраняйте исходный язык ({lang_instruction}), НИКОГДА не переводите на другие языки**
+2. **Полностью удалите все временные метки (например, [00:00 - 00:05])**
+3. **Интеллектуально определяйте и объединяйте полные предложения, разбитые временными метками**, грамматически неполные фрагменты должны быть объединены с контекстом
+4. Исправляйте явные опечатки и грамматические ошибки
+5. Разбивайте восстановленные полные предложения на естественные абзацы по смыслу и логике
+6. Разделяйте абзацы пустыми строками
+7. **Строго сохраняйте исходный смысл, не добавляйте и не удаляйте фактическое содержание**
+8. **НИКОГДА не меняйте личные местоимения (I/я, you/ты/вы, he/он, she/она и т.д.)**
+9. **Сохраняйте исходную перспективу и контекст каждого говорящего**
+10. **Определяйте структуру диалога: интервьюер использует "you", респондент использует "I/we" — НЕ ПУТАЙТЕ**
+11. Убедитесь, что каждое предложение грамматически завершено, язык плавный и естественный
 
-处理策略：
-- 优先识别不完整的句子片段（如以介词、连词、形容词结尾）
-- 查看相邻的文本片段，合并形成完整句子
-- 重新断句，确保每句话语法完整
-- 按主题和逻辑重新分段
+Стратегия обработки:
+- Сначала определяйте неполные фрагменты предложений (заканчивающиеся на предлоги, союзы, прилагательные)
+- Просматривайте соседние фрагменты текста для объединения в полные предложения
+- Разбивайте предложения заново, обеспечивая грамматическую завершенность
+- Разбивайте на абзацы по темам и логике
 
-分段要求：
-- 按主题和逻辑含义分段，每段包含1-8个相关句子
-- 单段长度不超过400字符
-- 避免过多的短段落，合并相关内容
-- 当一个完整想法或观点表达后分段
+Требования к абзацам:
+- По темам и логическому смыслу, каждый абзац содержит 1-8 связанных предложений
+- Длина одного абзаца не более 400 символов
+- Избегайте слишком коротких абзацев, объединяйте связанный контент
+- Разбивайте, когда завершена одна мысль или точка зрения
 
-输出格式：
-- 纯文本段落，无时间戳或格式标记
-- 每个句子结构完整
-- 每个段落讨论一个主要话题
-- 段落之间用空行分隔
+Формат вывода:
+- Только текст абзацев, без временных меток или форматирования
+- Каждое предложение структурно завершено
+- Каждый абзац раскрывает одну основную тему
+- Абзацы разделены пустыми строками
 
-重要提醒：这是{lang_instruction}内容，请完全用{lang_instruction}进行优化，重点解决句子被时间戳拆分导致的不连贯问题！务必进行合理的分段，避免出现超长段落！
+Важно: это текст на {lang_instruction}, оптимизируйте строго на {lang_instruction}, особое внимание уделите устранению несвязности из-за разбиения временными метками! Обязательно выполняйте разумное разделение на абзацы, избегайте слишком длинных абзацев!
 
-**关键要求：这可能是访谈对话，绝对不要改变任何人称代词或说话者视角！访谈者说"you"，被访者说"I/we"，必须严格保持！**"""
+**Ключевое требование: это может быть диалог интервью, НИКОГДА не меняйте личные местоимения или перспективу говорящего! Интервьюер говорит "you", респондент говорит "I/we" — это должно строго сохраняться!**"""
 
-        user_prompt = f"""请将以下{lang_instruction}视频转录文本优化为流畅的段落文本：
+        user_prompt = f"""Оптимизируйте следующий текст транскрипции видео на {lang_instruction} в плавный текст с абзацами:
 
 {raw_transcript}
 
-重点任务：
-1. 移除所有时间戳标记
-2. 识别并重组被拆分的完整句子
-3. 确保每个句子语法完整、意思连贯
-4. 按含义重新分段，段落间空行分隔
-5. 保持{lang_instruction}语言不变
+Основные задачи:
+1. Удалить все временные метки
+2. Определить и восстановить разбитые полные предложения
+3. Обеспечить грамматическую завершенность и смысловую связность каждого предложения
+4. Разбить на абзацы по смыслу, разделяя их пустыми строками
+5. Сохранить язык {lang_instruction}
 
-分段指导：
-- 按主题和逻辑含义分段，每段包含1-8个相关句子
-- 单段长度不超过400字符
-- 避免过多的短段落，合并相关内容
-- 确保段落之间有明确的空行
+Руководство по разбиению:
+- По темам и логическому смыслу, каждый абзац содержит 1-8 связанных предложений
+- Длина одного абзаца не более 400 символов
+- Избегайте слишком коротких абзацев, объединяйте связанный контент
+- Обязательно разделяйте абзацы пустыми строками
 
-请特别注意修复因时间戳分割导致的句子不完整问题，并进行合理的段落划分！"""
+Особое внимание уделите восстановлению предложений, разбитых временными метками, и правильному разделению на абзацы!"""
 
         response = self.client.chat.completions.create(
             model=self.fast_model,
@@ -179,7 +178,7 @@ class Summarizer:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            max_tokens=4000,  # 对齐JS：优化/格式化阶段最大tokens≈4000
+            max_tokens=4000,
             temperature=0.1
         )
         
@@ -187,38 +186,38 @@ class Summarizer:
 
     async def _optimize_with_chunks(self, raw_transcript: str, max_tokens: int) -> str:
         """
-        分块优化长文本
+        Пофрагментная оптимизация длинного текста
         """
         detected_lang = self._detect_transcript_language(raw_transcript)
         lang_instruction = self._get_language_instruction(detected_lang)
         
-        # 按段落分割原始转录（保留时间戳作为分割参考）
+        # Разбивка исходной транскрипции по абзацам (с учетом временных меток для ориентира)
         chunks = self._split_into_chunks(raw_transcript, max_tokens)
-        logger.info(f"分割为 {len(chunks)} 个块进行处理")
+        logger.info(f"Разбито на {len(chunks)} фрагментов для обработки")
         
         optimized_chunks = []
         
         for i, chunk in enumerate(chunks):
-            logger.info(f"正在优化第 {i+1}/{len(chunks)} 块...")
+            logger.info(f"Оптимизация фрагмента {i+1}/{len(chunks)}...")
             
-            system_prompt = f"""你是专业的文本编辑专家。请对这段转录文本片段进行简单优化。
+            system_prompt = f"""Вы профессиональный редактор текста. Выполните простую оптимизацию этого фрагмента транскрипции.
 
-这是完整转录的第{i+1}部分，共{len(chunks)}部分。
+Это часть {i+1} из {len(chunks)} полного текста.
 
-简单优化要求：
-1. **严格保持原始语言({lang_instruction})**，绝对不翻译
-2. **仅修正明显的错别字和语法错误**
-3. **稍微调整句子流畅度**，但不大幅改写
-4. **保持原文结构和长度**，不做复杂的段落重组
-5. **保持原意100%不变**
+Требования простой оптимизации:
+1. **Строго сохраняйте исходный язык ({lang_instruction})** — НИКОГДА не переводите
+2. **Исправляйте только явные опечатки и грамматические ошибки**
+3. **Незначительно улучшайте плавность предложений**, но не переписывайте кардинально
+4. **Сохраняйте исходную структуру и длину**, не выполняйте сложную перегруппировку абзацев
+5. **Сохраняйте исходный смысл на 100%**
 
-注意：这只是初步清理，不要做复杂的重写或重新组织。"""
+Важно: это только предварительная очистка, не выполняйте сложное переписывание или реорганизацию."""
 
-            user_prompt = f"""简单优化以下{lang_instruction}文本片段（仅修错别字和语法）：
+            user_prompt = f"""Выполните простую оптимизацию этого фрагмента текста на {lang_instruction} (только исправление опечаток и грамматики):
 
 {chunk}
 
-输出清理后的文本，保持原文结构。"""
+Выведите очищенный текст, сохраняя исходную структуру."""
 
             try:
                 response = self.client.chat.completions.create(
@@ -227,7 +226,7 @@ class Summarizer:
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    max_tokens=1200,  # 适应4000 tokens总限制
+                    max_tokens=1200,
                     temperature=0.1
                 )
                 
@@ -235,60 +234,60 @@ class Summarizer:
                 optimized_chunks.append(optimized_chunk)
                 
             except Exception as e:
-                logger.error(f"优化第 {i+1} 块失败: {e}")
-                # 失败时使用基本清理
+                logger.error(f"Ошибка оптимизации фрагмента {i+1}: {e}")
+                # При ошибке используем базовую очистку
                 cleaned_chunk = self._basic_transcript_cleanup(chunk)
                 optimized_chunks.append(cleaned_chunk)
         
-        # 合并所有优化后的块
+        # Объединение всех оптимизированных фрагментов
         merged_text = "\n\n".join(optimized_chunks)
         
-        # 对合并后的文本进行二次段落整理
-        logger.info("正在进行最终段落整理...")
+        # Финальная обработка абзацев
+        logger.info("Выполняется финальная обработка абзацев...")
         final_result = await self._final_paragraph_organization(merged_text, lang_instruction)
         
-        logger.info("分块优化完成")
+        logger.info("Пофрагментная оптимизация завершена")
         return final_result
 
-    # ===== JS openaiService.js 移植：分块/上下文/去重/格式化 =====
+    # ===== Перенос из JS openaiService.js: разбивка/контекст/дедупликация/форматирование =====
 
     def _ensure_markdown_paragraphs(self, text: str) -> str:
-        """确保Markdown段落空行、标题后空行、压缩多余空行。"""
+        """Обеспечение правильного форматирования Markdown: пустые строки между абзацами, после заголовков, удаление лишних переносов."""
         if not text:
             return text
         formatted = text.replace("\r\n", "\n")
         import re
-        # 标题后加空行
+        # Добавление пустой строки после заголовков
         formatted = re.sub(r"(^#{1,6}\s+.*)\n([^\n#])", r"\1\n\n\2", formatted, flags=re.M)
-        # 压缩≥3个换行为2个
+        # Сжатие ≥3 переносов до 2
         formatted = re.sub(r"\n{3,}", "\n\n", formatted)
-        # 去首尾空行
+        # Удаление пустых строк в начале и конце
         formatted = re.sub(r"^\n+", "", formatted)
         formatted = re.sub(r"\n+$", "", formatted)
         return formatted
 
     async def _format_single_chunk(self, chunk_text: str, transcript_language: str = 'zh') -> str:
-        """单块优化（修正+格式化），遵循4000 tokens 限制。"""
-        # 构建与JS版一致的系统/用户提示
+        """Оптимизация одного блока (исправление + форматирование), соблюдая лимит 4000 токенов."""
+        # Формирование промптов, аналогичных JS-версии
         if transcript_language == 'zh':
             prompt = (
-                "请对以下音频转录文本进行智能优化和格式化，要求：\n\n"
-                "**内容优化（正确性优先）：**\n"
-                "1. 错误修正（转录错误/错别字/同音字/专有名词）\n"
-                "2. 适度改善语法，补全不完整句子，保持原意和语言不变\n"
-                "3. 口语处理：保留自然口语与重复表达，不要删减内容，仅添加必要标点\n"
-                "4. **绝对不要改变人称代词（I/我、you/你等）和说话者视角**\n\n"
-                "**分段规则：**\n"
-                "- 按主题和逻辑含义分段，每段包含1-8个相关句子\n"
-                "- 单段长度不超过400字符\n"
-                "- 避免过多的短段落，合并相关内容\n\n"
-                "**格式要求：**Markdown 段落，段落间空行\n\n"
-                f"原始转录文本：\n{chunk_text}"
+                "Выполните интеллектуальную оптимизацию и форматирование следующего текста аудиотранскрипции:\n\n"
+                "**Оптимизация содержания (приоритет точности):**\n"
+                "1. Исправление ошибок (опечатки/омонимы/имена собственные)\n"
+                "2. Умеренное улучшение грамматики, завершение неполных предложений, сохранение исходного языка и смысла\n"
+                "3. Обработка устной речи: сохраняйте естественные повторы и междометия, НЕ удаляйте контент, добавляйте только необходимую пунктуацию\n"
+                "4. **НИКОГДА не меняйте личные местоимения (I/я, you/ты/вы и т.д.) и перспективу говорящего**\n\n"
+                "**Правила разбиения на абзацы:**\n"
+                "- По темам и логическому смыслу, каждый абзац содержит 1-8 связанных предложений\n"
+                "- Длина одного абзаца не более 400 символов\n"
+                "- Избегайте слишком коротких абзацев, объединяйте связанный контент\n\n"
+                "**Требования к формату:** абзацы в Markdown с пустыми строками между ними\n\n"
+                f"Исходный текст транскрипции:\n{chunk_text}"
             )
             system_prompt = (
-                "你是专业的音频转录文本优化助手，修正错误、改善通顺度和排版格式，"
-                "必须保持原意，不得删减口语/重复/细节；仅移除时间戳或元信息。"
-                "绝对不要改变人称代词或说话者视角。这可能是访谈对话，访谈者用'you'，被访者用'I/we'。"
+                "Вы профессиональный помощник по оптимизации текстов аудиотранскрипций. Исправляйте ошибки, улучшайте связность и форматирование, "
+                "строго сохраняйте исходный смысл, НЕ удаляйте устную речь, повторы и детали; удаляйте только временные метки и метаданные. "
+                "НИКОГДА не меняйте личные местоимения или перспективу говорящего. Это может быть интервью: интервьюер использует 'you', респондент использует 'I/we'."
             )
         else:
             prompt = (
@@ -315,26 +314,26 @@ class Summarizer:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=4000,  # 对齐JS：优化/格式化阶段最大tokens≈4000
+                max_tokens=4000,
                 temperature=0.1
             )
             optimized_text = strip_llm_artifacts(response.choices[0].message.content or "")
-            # 移除诸如 "# Transcript" / "## Transcript" 等标题
+            # Удаление заголовков типа "# Transcript" / "## Transcript"
             optimized_text = self._remove_transcript_heading(optimized_text)
             enforced = self._enforce_paragraph_max_chars(optimized_text.strip(), max_chars=400)
             return self._ensure_markdown_paragraphs(enforced)
         except Exception as e:
-            logger.error(f"单块文本优化失败: {e}")
+            logger.error(f"Ошибка оптимизации одного блока: {e}")
             return self._apply_basic_formatting(chunk_text)
 
     def _smart_split_long_chunk(self, text: str, max_chars_per_chunk: int) -> list:
-        """在句子/空格边界处安全切分超长文本。"""
+        """Безопасная разбивка очень длинного текста по границам предложений/пробелов."""
         chunks = []
         pos = 0
         while pos < len(text):
             end = min(pos + max_chars_per_chunk, len(text))
             if end < len(text):
-                # 优先句子边界
+                # Приоритет: границы предложений
                 sentence_endings = ['。', '！', '？', '.', '!', '?']
                 best = -1
                 for ch in sentence_endings:
@@ -344,7 +343,7 @@ class Summarizer:
                 if best > pos + int(max_chars_per_chunk * 0.7):
                     end = best + 1
                 else:
-                    # 次选：空格边界
+                    # Второй приоритет: пробелы
                     space_idx = text.rfind(' ', pos, end)
                     if space_idx > pos + int(max_chars_per_chunk * 0.8):
                         end = space_idx
@@ -353,19 +352,19 @@ class Summarizer:
         return [c for c in chunks if c]
 
     def _find_safe_cut_point(self, text: str) -> int:
-        """找到安全的切割点（段落>句子>短语）。"""
+        """Поиск безопасной точки разбиения (абзац > предложение > фраза)."""
         import re
-        # 段落
+        # Абзац
         p = text.rfind("\n\n")
         if p > 0:
             return p + 2
-        # 句子
+        # Предложение
         last_sentence_end = -1
         for m in re.finditer(r"[。！？\.!?]\s*", text):
             last_sentence_end = m.end()
         if last_sentence_end > 20:
             return last_sentence_end
-        # 短语
+        # Фраза
         last_phrase_end = -1
         for m in re.finditer(r"[，；,;]\s*", text):
             last_phrase_end = m.end()
@@ -374,9 +373,9 @@ class Summarizer:
         return len(text)
 
     def _find_overlap_between_texts(self, text1: str, text2: str) -> str:
-        """检测相邻两段的重叠内容，用于去重。"""
+        """Обнаружение перекрывающегося содержимого между соседними блоками для дедупликации."""
         max_len = min(len(text1), len(text2))
-        # 逐步从长到短尝试
+        # Перебор от длинного к короткому
         for length in range(max_len, 19, -1):
             suffix = text1[-length:]
             prefix = text2[:length]
@@ -388,7 +387,7 @@ class Summarizer:
         return ""
 
     def _apply_basic_formatting(self, text: str) -> str:
-        """当AI失败时的回退：按句子拼段，段落≤250字符，双换行分隔。"""
+        """Базовое форматирование при сбое ИИ: разбивка по предложениям, абзацы ≤250 символов, разделение двойным переносом."""
         if not text or not text.strip():
             return text
         import re
@@ -411,13 +410,13 @@ class Summarizer:
         for s in sentences:
             candidate = (cur + " " + s).strip() if cur else s
             sentence_count += 1
-            # 改进的分段逻辑：考虑句子数量和长度
+            # Улучшенная логика разбиения: учет количества предложений и длины
             should_break = False
-            if len(candidate) > 400 and cur:  # 段落过长
+            if len(candidate) > 400 and cur:  # Слишком длинный абзац
                 should_break = True
-            elif len(candidate) > 200 and sentence_count >= 3:  # 中等长度且句子数足够
+            elif len(candidate) > 200 and sentence_count >= 3:  # Средняя длина и достаточно предложений
                 should_break = True
-            elif sentence_count >= 6:  # 句子数过多
+            elif sentence_count >= 6:  # Слишком много предложений
                 should_break = True
             
             if should_break:
@@ -431,9 +430,9 @@ class Summarizer:
         return self._ensure_markdown_paragraphs("\n\n".join(paras))
 
     async def _format_long_transcript_in_chunks(self, raw_transcript: str, transcript_language: str, max_chars_per_chunk: int) -> str:
-        """智能分块+上下文+去重 合成优化文本（JS策略移植）。"""
+        """Интеллектуальная разбивка + контекст + дедупликация для оптимизации длинного текста (портировано из JS)."""
         import re
-        # 先按句子切分，组装不超过max_chars_per_chunk的块
+        # Сначала разбивка по предложениям, сборка блоков не более max_chars_per_chunk
         parts = re.split(r"([。！？\.!?]+\s*)", raw_transcript)
         sentences = []
         buf = ""
@@ -460,7 +459,7 @@ class Summarizer:
         if cur.strip():
             chunks.append(cur.strip())
 
-        # 对仍然过长的块二次安全切分
+        # Вторичная безопасная разбивка все еще слишком длинных блоков
         final_chunks = []
         for c in chunks:
             if len(c) <= max_chars_per_chunk:
@@ -468,7 +467,7 @@ class Summarizer:
             else:
                 final_chunks.extend(self._smart_split_long_chunk(c, max_chars_per_chunk))
 
-        logger.info(f"文本分为 {len(final_chunks)} 块处理")
+        logger.info(f"Текст разбит на {len(final_chunks)} блоков для обработки")
 
         optimized = []
         for i, c in enumerate(final_chunks):
@@ -479,14 +478,14 @@ class Summarizer:
                 chunk_with_context = marker + "\n\n" + c
             try:
                 oc = await self._format_single_chunk(chunk_with_context, transcript_language)
-                # 移除上下文标记
+                # Удаление меток контекста
                 oc = re.sub(r"^\[(上文续|Context continued)：?:?.*?\]\s*", "", oc, flags=re.S)
                 optimized.append(oc)
             except Exception as e:
-                logger.warning(f"第 {i+1} 块优化失败，使用基础格式化: {e}")
+                logger.warning(f"Ошибка оптимизации блока {i+1}, используется базовое форматирование: {e}")
                 optimized.append(self._apply_basic_formatting(c))
 
-        # 邻接块去重
+        # Дедупликация соседних блоков
         deduped = []
         for i, c in enumerate(optimized):
             cur_txt = c
@@ -506,26 +505,23 @@ class Summarizer:
         return self._ensure_markdown_paragraphs(enforced)
 
     def _remove_timestamps_and_meta(self, text: str) -> str:
-        """仅移除时间戳行与明显元信息（标题、检测语言等），保留原文口语/重复。"""
+        """Удаление временных меток и явных метаданных (заголовки, язык, вероятность)."""
         lines = text.split('\n')
         kept = []
         for line in lines:
             s = line.strip()
-            # 跳过时间戳与元信息
+            # Пропуск временных меток и метаданных
             if (s.startswith('**[') and s.endswith(']**')):
                 continue
             if s.startswith('# '):
-                # 跳过顶级标题（通常是视频标题，可在最终加回）
                 continue
             if s.startswith('**检测语言:**') or s.startswith('**语言概率:**'):
                 continue
             kept.append(line)
-        # 规范空行
-        cleaned = '\n'.join(kept)
-        return cleaned
+        return '\n'.join(kept)
 
     def _enforce_paragraph_max_chars(self, text: str, max_chars: int = 400) -> str:
-        """按段落拆分并确保每段不超过max_chars，必要时按句子边界拆为多段。"""
+        """Разбивка абзацев, чтобы каждый не превышал max_chars, при необходимости — по предложениям."""
         if not text:
             return text
         import re
@@ -536,7 +532,7 @@ class Summarizer:
             if len(para) <= max_chars:
                 new_paragraphs.append(para)
                 continue
-            # 句子切分
+            # Разбивка по предложениям
             parts = re.split(r"([。！？\.!?]+\s*)", para)
             sentences = []
             buf = ""
@@ -563,11 +559,10 @@ class Summarizer:
         return "\n\n".join([p.strip() for p in new_paragraphs if p is not None])
 
     def _remove_transcript_heading(self, text: str) -> str:
-        """移除开头或段落中的以 Transcript 为标题的行（任意级别#），不改变正文。"""
+        """Удаление строк-заголовков вида Transcript (любого уровня #), не затрагивая основной текст."""
         if not text:
             return text
         import re
-        # 移除形如 '## Transcript'、'# Transcript Text'、'### transcript' 的标题行
         lines = text.split('\n')
         filtered = []
         for line in lines:
@@ -579,18 +574,18 @@ class Summarizer:
 
     def _split_into_chunks(self, text: str, max_tokens: int) -> list:
         """
-        将原始转录文本智能分割成合适大小的块
-        策略：先提取纯文本，按句子和段落自然分割
+        Интеллектуальная разбивка исходного текста транскрипции на блоки подходящего размера
+        Стратегия: извлечение чистого текста, разбивка по предложениям и абзацам
         """
         import re
         
-        # 1. 先提取纯文本内容（移除时间戳、标题等）
+        # 1. Извлечение чистого текста (удаление временных меток, заголовков и т.д.)
         pure_text = self._extract_pure_text(text)
         
-        # 2. 按句子分割，保持句子完整性
+        # 2. Разбивка по предложениям с сохранением целостности
         sentences = self._split_into_sentences(pure_text)
         
-        # 3. 按token限制组装成块
+        # 3. Сборка в блоки с учетом лимита токенов
         chunks = []
         current_chunk = []
         current_tokens = 0
@@ -598,18 +593,18 @@ class Summarizer:
         for sentence in sentences:
             sentence_tokens = self._estimate_tokens(sentence)
             
-            # 检查是否能加入当前块
+            # Проверка, можно ли добавить в текущий блок
             if current_tokens + sentence_tokens > max_tokens and current_chunk:
-                # 当前块已满，保存并开始新块
+                # Текущий блок заполнен, сохраняем и начинаем новый
                 chunks.append(self._join_sentences(current_chunk))
                 current_chunk = [sentence]
                 current_tokens = sentence_tokens
             else:
-                # 添加到当前块
+                # Добавление в текущий блок
                 current_chunk.append(sentence)
                 current_tokens += sentence_tokens
         
-        # 添加最后一块
+        # Добавление последнего блока
         if current_chunk:
             chunks.append(self._join_sentences(current_chunk))
         
@@ -617,14 +612,14 @@ class Summarizer:
     
     def _extract_pure_text(self, raw_transcript: str) -> str:
         """
-        从原始转录中提取纯文本，移除时间戳和元数据
+        Извлечение чистого текста из исходной транскрипции (удаление временных меток и метаданных)
         """
         lines = raw_transcript.split('\n')
         text_lines = []
         
         for line in lines:
             line = line.strip()
-            # 跳过时间戳、标题、元数据
+            # Пропуск временных меток, заголовков, метаданных
             if (line.startswith('**[') and line.endswith(']**') or
                 line.startswith('#') or
                 line.startswith('**检测语言:**') or
@@ -637,14 +632,14 @@ class Summarizer:
     
     def _split_into_sentences(self, text: str) -> list:
         """
-        按句子分割文本，考虑中英文差异
+        Разбивка текста на предложения с учетом различий между языками
         """
         import re
         
-        # 中英文句子结束符
+        # Разделители предложений для китайского и английского языков
         sentence_endings = r'[.!?。！？;；]+'
         
-        # 分割句子，保留句号
+        # Разбивка с сохранением разделителей
         parts = re.split(f'({sentence_endings})', text)
         
         sentences = []
@@ -652,16 +647,16 @@ class Summarizer:
         
         for i, part in enumerate(parts):
             if re.match(sentence_endings, part):
-                # 这是句子结束符，加到当前句子
+                # Это разделитель предложения, добавляем к текущему
                 current += part
                 if current.strip():
                     sentences.append(current.strip())
                 current = ""
             else:
-                # 这是句子内容
+                # Это содержание предложения
                 current += part
         
-        # 处理最后没有句号的部分
+        # Обработка последней части без разделителя
         if current.strip():
             sentences.append(current.strip())
         
@@ -671,39 +666,38 @@ class Summarizer:
     
     def _join_sentences(self, sentences: list) -> str:
         """
-        重新组合句子为段落
+        Объединение предложений в абзац
         """
         return ' '.join(sentences)
 
     def _basic_transcript_cleanup(self, raw_transcript: str) -> str:
         """
-        基本的转录文本清理：移除时间戳和标题信息
-        当GPT优化失败时的后备方案
+        Базовая очистка текста транскрипции: удаление временных меток и заголовков
+        Запасной вариант при сбое оптимизации через GPT
         """
         lines = raw_transcript.split('\n')
         cleaned_lines = []
         
         for line in lines:
-            # 跳过时间戳行
+            # Пропуск временных меток
             if line.strip().startswith('**[') and line.strip().endswith(']**'):
                 continue
-            # 跳过标题行
+            # Пропуск заголовков
             if line.strip().startswith('# ') or line.strip().startswith('## '):
                 continue
-            # 跳过检测语言等元信息行
+            # Пропуск метаданных
             if line.strip().startswith('**检测语言:**') or line.strip().startswith('**语言概率:**'):
                 continue
-            # 保留非空文本行
+            # Сохранение непустых строк текста
             if line.strip():
                 cleaned_lines.append(line.strip())
         
-        # 将句子重新组合并智能分段
+        # Объединение предложений и интеллектуальная разбивка на абзацы
         text = ' '.join(cleaned_lines)
         
-        # 更智能的分句处理，考虑中英文差异
         import re
         
-        # 按句号、问号、感叹号分句
+        # Разбивка по предложениям
         sentences = re.split(r'[.!?。！？]', text)
         sentences = [s.strip() for s in sentences if s.strip()]
         
@@ -714,10 +708,10 @@ class Summarizer:
             if sentence:
                 current_paragraph.append(sentence)
                 
-                # 智能分段条件：
-                # 1. 每3个句子一段（基本规则）
-                # 2. 遇到话题转换词汇时强制分段
-                # 3. 避免超长段落
+                # Условия для разбиения абзаца:
+                # 1. Каждые 3 предложения (базовое правило)
+                # 2. Принудительное разбиение при смене темы
+                # 3. Предотвращение слишком длинных абзацев
                 topic_change_keywords = [
                     '首先', '其次', '然后', '接下来', '另外', '此外', '最后', '总之',
                     'first', 'second', 'third', 'next', 'also', 'however', 'finally',
@@ -727,24 +721,23 @@ class Summarizer:
                 
                 should_break = False
                 
-                # 检查是否需要分段
-                if len(current_paragraph) >= 3:  # 基本长度条件
+                # Проверка необходимости разбиения
+                if len(current_paragraph) >= 3:  # Базовое условие по длине
                     should_break = True
-                elif len(current_paragraph) >= 2:  # 较短但遇到话题转换
+                elif len(current_paragraph) >= 2:  # Более короткий, но смена темы
                     for keyword in topic_change_keywords:
                         if sentence.lower().startswith(keyword.lower()):
                             should_break = True
                             break
                 
-                if should_break or len(current_paragraph) >= 4:  # 最大长度限制
-                    # 组合当前段落
+                if should_break or len(current_paragraph) >= 4:  # Максимальная длина
                     paragraph_text = '. '.join(current_paragraph)
                     if not paragraph_text.endswith('.'):
                         paragraph_text += '.'
                     paragraphs.append(paragraph_text)
                     current_paragraph = []
         
-        # 添加剩余的句子
+        # Добавление оставшихся предложений
         if current_paragraph:
             paragraph_text = '. '.join(current_paragraph)
             if not paragraph_text.endswith('.'):
@@ -755,42 +748,42 @@ class Summarizer:
 
     async def _final_paragraph_organization(self, text: str, lang_instruction: str) -> str:
         """
-        对合并后的文本进行最终的段落整理
-        使用改进的prompt和工程验证
+        Финальная обработка абзацев объединенного текста
+        Использует улучшенный промпт и инженерную валидацию
         """
         try:
-            # 估算文本长度，如果太长则分块处理
+            # Оценка длины текста, при необходимости — разбивка на блоки
             estimated_tokens = self._estimate_tokens(text)
-            if estimated_tokens > 3000:  # 对于很长的文本，分块处理
+            if estimated_tokens > 3000:  # Для очень длинных текстов — пофрагментная обработка
                 return await self._organize_long_text_paragraphs(text, lang_instruction)
             
-            system_prompt = f"""你是专业的{lang_instruction}文本段落整理专家。你的任务是按照语义和逻辑重新组织段落。
+            system_prompt = f"""Вы профессиональный эксперт по организации абзацев на {lang_instruction}. Ваша задача — перегруппировать абзацы по смыслу и логике.
 
-🎯 **核心原则**：
-1. **严格保持原始语言({lang_instruction})**，绝不翻译
-2. **保持所有内容完整**，不删除不添加任何信息
-3. **按语义逻辑分段**：每段围绕一个完整的思想或话题
-4. **严格控制段落长度**：每段绝不超过250词
-5. **保持自然流畅**：段落间应有逻辑连接
+🎯 **Основные принципы**:
+1. **Строго сохраняйте исходный язык ({lang_instruction})** — НИКОГДА не переводите
+2. **Сохраняйте всё содержание полностью**, не удаляйте и не добавляйте информацию
+3. **Разбивайте по смысловой логике**: каждый абзац — одна завершенная мысль или тема
+4. **Строго контролируйте длину абзацев**: не более 250 слов
+5. **Сохраняйте естественную связность**: между абзацами должна быть логическая связь
 
-📏 **分段标准**：
-- **语义完整性**：每段讲述一个完整概念或事件
-- **适中长度**：3-7个句子，每段绝不超过250词
-- **逻辑边界**：在话题转换、时间转换、观点转换处分段
-- **自然断点**：遵循说话者的自然停顿和逻辑
+📏 **Стандарты разбиения**:
+- **Смысловая целостность**: каждый абзац описывает одну завершенную идею
+- **Оптимальная длина**: 3-7 предложений, не более 250 слов
+- **Логические границы**: разбивайте при смене темы, временного периода или точки зрения
+- **Естественные паузы**: следуйте естественным паузам говорящего и логике повествования
 
-⚠️ **严禁**：
-- 创造超过250词的巨型段落
-- 强行合并不相关的内容
-- 打断完整的故事或论述
+⚠️ **Запрещено**:
+- Создавать абзацы длиннее 250 слов
+- Принудительно объединять несвязанное содержание
+- Разрывать целостные истории или рассуждения
 
-输出格式：段落间用空行分隔。"""
+Формат вывода: абзацы разделены пустыми строками."""
 
-            user_prompt = f"""请重新整理以下{lang_instruction}文本的段落结构。严格按照语义和逻辑进行分段，确保每段不超过200词：
+            user_prompt = f"""Перегруппируйте абзацы следующего текста на {lang_instruction}. Строго соблюдайте смысловую и логическую структуру, убедитесь, что каждый абзац не превышает 200 слов:
 
 {text}
 
-重新分段后的文本："""
+Текст с перегруппированными абзацами:"""
 
             response = self.client.chat.completions.create(
                 model=self.advanced_model,
@@ -798,40 +791,40 @@ class Summarizer:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=4000,  # 对齐JS：段落整理阶段最大tokens≈4000
-                temperature=0.05  # 降低温度，提高一致性
+                max_tokens=4000,
+                temperature=0.05
             )
             
             organized_text = strip_llm_artifacts(response.choices[0].message.content or "")
             
-            # 工程验证：检查段落长度
+            # Инженерная проверка длины абзацев
             validated_text = self._validate_paragraph_lengths(organized_text)
             
             return validated_text
             
         except Exception as e:
-            logger.error(f"最终段落整理失败: {e}")
-            # 失败时使用基础分段处理
+            logger.error(f"Ошибка финальной обработки абзацев: {e}")
+            # При ошибке — базовое разбиение
             return self._basic_paragraph_fallback(text)
 
     async def _organize_long_text_paragraphs(self, text: str, lang_instruction: str) -> str:
         """
-        对于很长的文本，分块进行段落整理
+        Пофрагментная обработка абзацев для очень длинных текстов
         """
         try:
-            # 按现有段落分割
+            # Разбивка по существующим абзацам
             paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
             organized_chunks = []
             
             current_chunk = []
             current_tokens = 0
-            max_chunk_tokens = 2500  # 适应4000 tokens限制的chunk大小
+            max_chunk_tokens = 2500  # Размер блока для адаптации к лимиту 4000 токенов
             
             for para in paragraphs:
                 para_tokens = self._estimate_tokens(para)
                 
                 if current_tokens + para_tokens > max_chunk_tokens and current_chunk:
-                    # 处理当前chunk
+                    # Обработка текущего блока
                     chunk_text = '\n\n'.join(current_chunk)
                     organized_chunk = await self._organize_single_chunk(chunk_text, lang_instruction)
                     organized_chunks.append(organized_chunk)
@@ -842,7 +835,7 @@ class Summarizer:
                     current_chunk.append(para)
                     current_tokens += para_tokens
             
-            # 处理最后一个chunk
+            # Обработка последнего блока
             if current_chunk:
                 chunk_text = '\n\n'.join(current_chunk)
                 organized_chunk = await self._organize_single_chunk(chunk_text, lang_instruction)
@@ -851,12 +844,12 @@ class Summarizer:
             return '\n\n'.join(organized_chunks)
             
         except Exception as e:
-            logger.error(f"长文本段落整理失败: {e}")
+            logger.error(f"Ошибка обработки длинного текста: {e}")
             return self._basic_paragraph_fallback(text)
 
     async def _organize_single_chunk(self, text: str, lang_instruction: str) -> str:
         """
-        整理单个文本块的段落
+        Организация абзацев в одном текстовом блоке
         """
         system_prompt = f"""You are a {lang_instruction} paragraph organization expert. Reorganize paragraphs by semantics, ensuring each paragraph does not exceed 200 words.
 
@@ -877,7 +870,7 @@ Core requirements:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            max_tokens=1200,  # 适应4000 tokens总限制
+            max_tokens=1200,
             temperature=0.05
         )
         
@@ -885,7 +878,7 @@ Core requirements:
 
     def _validate_paragraph_lengths(self, text: str) -> str:
         """
-        验证段落长度，如果有超长段落则尝试分割
+        Проверка длины абзацев, при обнаружении слишком длинных — попытка разбиения
         """
         paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
         validated_paragraphs = []
@@ -893,9 +886,9 @@ Core requirements:
         for para in paragraphs:
             word_count = len(para.split())
             
-            if word_count > 300:  # 如果段落超过300词
-                logger.warning(f"检测到超长段落({word_count}词)，尝试分割")
-                # 尝试按句子分割长段落
+            if word_count > 300:  # Если абзац превышает 300 слов
+                logger.warning(f"Обнаружен слишком длинный абзац ({word_count} слов), попытка разбиения")
+                # Попытка разбиения по предложениям
                 split_paras = self._split_long_paragraph(para)
                 validated_paragraphs.extend(split_paras)
             else:
@@ -905,11 +898,11 @@ Core requirements:
 
     def _split_long_paragraph(self, paragraph: str) -> list:
         """
-        分割过长的段落
+        Разбиение слишком длинного абзаца
         """
         import re
         
-        # 按句子分割
+        # Разбивка по предложениям
         sentences = re.split(r'[.!?。！？]\s+', paragraph)
         sentences = [s.strip() + '.' for s in sentences if s.strip()]
         
@@ -921,7 +914,7 @@ Core requirements:
             sentence_words = len(sentence.split())
             
             if current_words + sentence_words > 200 and current_para:
-                # 当前段落达到长度限制
+                # Текущий абзац достиг лимита длины
                 split_paragraphs.append(' '.join(current_para))
                 current_para = [sentence]
                 current_words = sentence_words
@@ -929,7 +922,7 @@ Core requirements:
                 current_para.append(sentence)
                 current_words += sentence_words
         
-        # 添加最后一段
+        # Добавление последнего абзаца
         if current_para:
             split_paragraphs.append(' '.join(current_para))
         
@@ -937,12 +930,12 @@ Core requirements:
 
     def _basic_paragraph_fallback(self, text: str) -> str:
         """
-        基础分段fallback机制
-        当GPT整理失败时，使用简单的规则分段
+        Базовый механизм разбиения на абзацы (запасной вариант)
+        При сбое GPT используется простые правила
         """
         import re
         
-        # 移除多余的空行
+        # Удаление лишних переносов
         text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
         
         paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
@@ -952,11 +945,11 @@ Core requirements:
             word_count = len(para.split())
             
             if word_count > 250:
-                # 长段落按句子分割
+                # Длинный абзац — разбивка по предложениям
                 split_paras = self._split_long_paragraph(para)
                 basic_paragraphs.extend(split_paras)
             elif word_count < 30 and basic_paragraphs:
-                # 短段落与上一段合并（如果合并后不超过200词）
+                # Короткий абзац — объединение с предыдущим (если не превышает 200 слов)
                 last_para = basic_paragraphs[-1]
                 combined_words = len(last_para.split()) + word_count
                 
@@ -971,44 +964,44 @@ Core requirements:
 
     async def summarize(self, transcript: str, target_language: str = "zh", video_title: str = None) -> str:
         """
-        生成视频转录的摘要
+        Создание резюме транскрипции видео
         
         Args:
-            transcript: 转录文本
-            target_language: 目标语言代码
+            transcript: Текст транскрипции
+            target_language: Код целевого языка
             
         Returns:
-            摘要文本（Markdown格式）
+            Текст резюме (в формате Markdown)
         """
         try:
             if not self.client:
-                logger.warning("OpenAI API不可用，生成备用摘要")
+                logger.warning("OpenAI API недоступен, создание запасного резюме")
                 return self._generate_fallback_summary(transcript, target_language, video_title)
             
-            # 估算转录文本长度，决定是否需要分块摘要
+            # Оценка длины текста транскрипции, определение необходимости пофрагментной обработки
             estimated_tokens = self._estimate_tokens(transcript)
-            max_summarize_tokens = 4000  # 提高限制，优先使用单文本处理以获得更好的总结质量
+            max_summarize_tokens = 4000  # Повышенный лимит для использования одноблочной обработки (лучшее качество)
             
             if estimated_tokens <= max_summarize_tokens:
-                # 短文本直接摘要
+                # Короткий текст — прямое резюме
                 return await self._summarize_single_text(transcript, target_language, video_title)
             else:
-                # 长文本分块摘要
-                logger.info(f"文本较长({estimated_tokens} tokens)，启用分块摘要")
+                # Длинный текст — пофрагментное резюме
+                logger.info(f"Длинный текст ({estimated_tokens} токенов), включена пофрагментная обработка")
                 return await self._summarize_with_chunks(transcript, target_language, video_title, max_summarize_tokens)
             
         except Exception as e:
-            logger.error(f"生成摘要失败: {str(e)}")
+            logger.error(f"Ошибка создания резюме: {str(e)}")
             return self._generate_fallback_summary(transcript, target_language, video_title)
 
     async def _summarize_single_text(self, transcript: str, target_language: str, video_title: str = None) -> str:
         """
-        对单个文本进行摘要
+        Создание резюме для одного текстового блока
         """
-        # 获取目标语言名称
+        # Получение названия целевого языка
         language_name = self.language_map.get(target_language, "中文（简体）")
         
-        # 构建英文提示词，适用于所有目标语言
+        # Промпт на английском (подходит для всех целевых языков)
         system_prompt = f"""You are an expert editor. Write a concise EXECUTIVE SUMMARY in {language_name} of the following material.
 
 Hard rules:
@@ -1023,9 +1016,9 @@ Output ONLY the summary body in {language_name}."""
 
 {transcript}"""
 
-        logger.info(f"正在生成{language_name}摘要...")
+        logger.info(f"Создание резюме на {language_name}...")
         
-        # 调用OpenAI API
+        # Вызов OpenAI API
         response = self.client.chat.completions.create(
             model=self.advanced_model,
             messages=[
@@ -1042,19 +1035,19 @@ Output ONLY the summary body in {language_name}."""
 
     async def _summarize_with_chunks(self, transcript: str, target_language: str, video_title: str, max_tokens: int) -> str:
         """
-        分块摘要长文本
+        Пофрагментное создание резюме для длинного текста
         """
         language_name = self.language_map.get(target_language, "中文（简体）")
 
-        # 使用JS策略：按字符进行智能分块（段落>句子）
+        # Использование стратегии из JS: интеллектуальная разбивка по символам (абзац > предложение)
         chunks = self._smart_chunk_text(transcript, max_chars_per_chunk=4000)
-        logger.info(f"分割为 {len(chunks)} 个块进行摘要")
+        logger.info(f"Разбито на {len(chunks)} блоков для резюмирования")
         
         chunk_summaries = []
         
-        # 每块生成局部摘要
+        # Создание локального резюме для каждого блока
         for i, chunk in enumerate(chunks):
-            logger.info(f"正在摘要第 {i+1}/{len(chunks)} 块...")
+            logger.info(f"Резюмирование блока {i+1}/{len(chunks)}...")
             
             system_prompt = f"""You are a summarization expert. Write a brief section summary in {language_name}.
 
@@ -1086,15 +1079,15 @@ Output content only, no headings like "Summary:"."""
                 chunk_summaries.append(chunk_summary)
                 
             except Exception as e:
-                logger.error(f"摘要第 {i+1} 块失败: {e}")
-                # 失败时生成简单摘要
-                simple_summary = f"第{i+1}部分内容概述：" + chunk[:200] + "..."
+                logger.error(f"Ошибка резюмирования блока {i+1}: {e}")
+                # При ошибке — краткое изложение
+                simple_summary = f"Содержание части {i+1}: " + chunk[:200] + "..."
                 chunk_summaries.append(simple_summary)
         
-        # 合并所有局部摘要（带编号），如分块较多则分层整合（不引入小标题）
+        # Объединение локальных резюме (с номерами)
         combined_summaries = "\n\n".join([f"[Part {idx+1}]\n" + s for idx, s in enumerate(chunk_summaries)])
 
-        logger.info("正在整合最终摘要...")
+        logger.info("Интеграция финального резюме...")
         if len(chunk_summaries) > 10:
             final_summary = await self._integrate_hierarchical_summaries(chunk_summaries, target_language)
         else:
@@ -1103,7 +1096,7 @@ Output content only, no headings like "Summary:"."""
         return self._format_summary_with_meta(final_summary, target_language, video_title)
 
     def _smart_chunk_text(self, text: str, max_chars_per_chunk: int = 3500) -> list:
-        """智能分块（先段落后句子），按字符上限切分。"""
+        """Интеллектуальная разбивка текста (сначала абзацы, затем предложения) по лимиту символов."""
         chunks = []
         paragraphs = [p for p in text.split('\n\n') if p.strip()]
         cur = ""
@@ -1117,7 +1110,7 @@ Output content only, no headings like "Summary:"."""
         if cur.strip():
             chunks.append(cur.strip())
 
-        # 二次按句子切分过长块
+        # Вторичная разбивка слишком длинных блоков по предложениям
         import re
         final_chunks = []
         for c in chunks:
@@ -1140,7 +1133,7 @@ Output content only, no headings like "Summary:"."""
     async def _integrate_hierarchical_summaries(
         self, chunk_summaries: list, target_language: str
     ) -> str:
-        """Many partial summaries: fold through the same integrator as the <=10 case."""
+        """Много частичных резюме: свертка через тот же интегратор, что и для <=10."""
         combined = "\n\n".join(
             f"[Part {idx + 1}]\n{s}" for idx, s in enumerate(chunk_summaries)
         )
@@ -1148,7 +1141,7 @@ Output content only, no headings like "Summary:"."""
 
     async def _integrate_chunk_summaries(self, combined_summaries: str, target_language: str) -> str:
         """
-        整合分块摘要为最终连贯摘要
+        Интеграция частичных резюме в единое связное резюме
         """
         language_name = self.language_map.get(target_language, "中文（简体）")
         
@@ -1176,18 +1169,18 @@ Rules:
 
             return strip_llm_artifacts(response.choices[0].message.content or "")
         except Exception as e:
-            logger.error(f"整合摘要失败: {e}")
-            # 失败时直接合并
+            logger.error(f"Ошибка интеграции резюме: {e}")
+            # При ошибке — прямое объединение
             return combined_summaries
 
     def _format_summary_with_meta(self, summary: str, target_language: str, video_title: str = None) -> str:
         """
-        为摘要添加标题和元信息
+        Добавление заголовка и метаданных к резюме
         """
         language_name = self.language_map.get(target_language, "中文（简体）")
         meta_labels = self._get_summary_labels(target_language)
         
-        # 不加任何小标题/免责声明，可保留视频标题作为一级标题
+        # Заголовок видео, если доступен
         if video_title:
             prefix = f"# {video_title}\n\n"
         else:
@@ -1196,30 +1189,29 @@ Rules:
 
     def _generate_fallback_summary(self, transcript: str, target_language: str, video_title: str = None) -> str:
         """
-        生成备用摘要（当OpenAI API不可用时）
+        Создание запасного резюме (при недоступности OpenAI API)
         
         Args:
-            transcript: 转录文本
-            video_title: 视频标题
-            target_language: 目标语言代码
+            transcript: Текст транскрипции
+            video_title: Заголовок видео
+            target_language: Код целевого языка
             
         Returns:
-            备用摘要文本
+            Текст запасного резюме
         """
         language_name = self.language_map.get(target_language, "中文（简体）")
         
-        # 简单的文本处理，提取关键信息
+        # Простая обработка текста, извлечение ключевой информации
         lines = transcript.split('\n')
         content_lines = [line for line in lines if line.strip() and not line.startswith('#') and not line.startswith('**')]
         
-        # 计算大概的长度
+        # Подсчет длины
         total_chars = sum(len(line) for line in content_lines)
         
-        # 使用目标语言的标签
+        # Многоязычные метки
         meta_labels = self._get_summary_labels(target_language)
         fallback_labels = self._get_fallback_labels(target_language)
         
-        # 直接使用视频标题作为主标题  
         title = video_title if video_title else "Summary"
         
         summary = f"""# {title}
@@ -1257,70 +1249,69 @@ Rules:
         return summary
     
     def _get_current_time(self) -> str:
-        """获取当前时间字符串"""
+        """Получение текущей даты и времени"""
         from datetime import datetime
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     def get_supported_languages(self) -> dict:
         """
-        获取支持的语言列表
+        Получение списка поддерживаемых языков
         
         Returns:
-            语言代码到语言名称的映射
+            Словарь с кодами языков и их названиями
         """
         return self.language_map.copy()
     
     def _detect_transcript_language(self, transcript: str) -> str:
         """
-        检测转录文本的主要语言
+        Определение основного языка текста транскрипции
         
         Args:
-            transcript: 转录文本
+            transcript: Текст транскрипции
             
         Returns:
-            检测到的语言代码
+            Код определенного языка
         """
-        # 简单的语言检测逻辑：查找转录文本中的语言标记
+        # Простая логика: поиск языковой метки в транскрипции
         if "**检测语言:**" in transcript:
-            # 从Whisper转录中提取检测到的语言
+            # Извлечение языка из метаданных Whisper
             lines = transcript.split('\n')
             for line in lines:
                 if "**检测语言:**" in line:
-                    # 提取语言代码，例如: "**检测语言:** en"
+                    # Извлечение кода языка, например: "**检测语言:** en"
                     lang = line.split(":")[-1].strip()
                     return lang
         
-        # 如果没有找到语言标记，使用简单的字符检测
-        # 计算英文字符、中文字符等的比例
+        # Если метка не найдена, использование простого определения по символам
         total_chars = len(transcript)
         if total_chars == 0:
-            return "en"  # 默认英文
+            return "en"  # По умолчанию английский
             
-        # 统计中文字符
+        # Подсчет китайских символов
         chinese_chars = sum(1 for char in transcript if '\u4e00' <= char <= '\u9fff')
         chinese_ratio = chinese_chars / total_chars
         
-        # 统计英文字母
+        # Подсчет английских букв
         english_chars = sum(1 for char in transcript if char.isascii() and char.isalpha())
         english_ratio = english_chars / total_chars
         
-        # 根据比例判断
+        # Определение по соотношению
         if chinese_ratio > 0.3:
             return "zh"
         elif english_ratio > 0.3:
             return "en"
         else:
-            return "en"  # 默认英文
+            return "en"  # По умолчанию английский
     
     def _get_language_instruction(self, lang_code: str) -> str:
         """
-        根据语言代码获取优化指令中使用的语言名称
+        Получение названия языка для инструкций на основе кода
         
         Args:
-            lang_code: 语言代码
+            lang_code: Код языка
             
         Returns:
-            语言名称
+            Название языка
         """
         language_instructions = {
             "en": "English",
@@ -1340,13 +1331,13 @@ Rules:
 
     def _get_summary_labels(self, lang_code: str) -> dict:
         """
-        获取摘要页面的多语言标签
+        Получение многоязычных меток для страницы резюме
         
         Args:
-            lang_code: 语言代码
+            lang_code: Код языка
             
         Returns:
-            标签字典
+            Словарь с метками
         """
         labels = {
             "en": {
@@ -1398,13 +1389,13 @@ Rules:
     
     def _get_fallback_labels(self, lang_code: str) -> dict:
         """
-        获取备用摘要的多语言标签
+        Получение многоязычных меток для запасного резюме
         
         Args:
-            lang_code: 语言代码
+            lang_code: Код языка
             
         Returns:
-            标签字典
+            Словарь с метками
         """
         labels = {
             "en": {
@@ -1452,9 +1443,9 @@ Rules:
     
     def is_available(self) -> bool:
         """
-        检查摘要服务是否可用
+        Проверка доступности сервиса резюмирования
         
         Returns:
-            True if OpenAI API is configured, False otherwise
+            True если OpenAI API настроен, иначе False
         """
         return self.client is not None

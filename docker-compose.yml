@@ -10,6 +10,10 @@ services:
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
       # Опционально: размер модели Whisper
       - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
+      # или "cpu" если GPU нет
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
+      # для GPU, или "int8" для CPU
+      - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
       # Опционально: максимальный размер одного загружаемого локального файла (МБ), соответствует локальной переменной окружения
       - UPLOAD_MAX_MB=${UPLOAD_MAX_MB:-200}
       # Конфигурация сервера

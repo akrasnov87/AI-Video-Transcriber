@@ -1,12 +1,13 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Video Transcriber</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
+  <title>AI Видео Транскрибатор</title>
+  <link rel="stylesheet" href="/static/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <script src="/static/ajax/libs/marked/9.1.2/marked.min.js"></script>
   <style>
+    /* ── ТЕМНАЯ ТЕМА (по умолчанию) ────────────────────────── */
     :root {
       --bg:           #0d0b09;
       --surface:      #171310;
@@ -25,6 +26,25 @@
       --error:        #e07878;
       --r:            12px;
       --r-sm:         8px;
+    }
+
+    /* ── СВЕТЛАЯ ТЕМА ────────────────────────────────────────── */
+    [data-theme="light"] {
+      --bg:           #f5f0eb;
+      --surface:      #ffffff;
+      --surface-2:    #f0ebe6;
+      --surface-3:    #e8e0d8;
+      --border:       #d5ccc4;
+      --border-light: #e5ddd5;
+      --accent:       #c07830;
+      --accent-h:     #d08840;
+      --accent-dim:   #a06828;
+      --accent-text:  #b07028;
+      --text:         #3a322a;
+      --text-muted:   #8a7a6a;
+      --text-dim:     #b0a090;
+      --success:      #4a9a5a;
+      --error:        #d06060;
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -552,26 +572,107 @@
       .settings-grid .span2 { grid-column: 1; }
       .settings-body.open { max-height: 320px; }
     }
+
+    /* В блок <style> */
+    .inline-lang-group {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .inline-lang {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    @media (max-width: 560px) {
+      .inline-lang-group {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+      }
+      .inline-lang {
+        justify-content: space-between;
+      }
+    }
+    .theme-btn {
+      background: var(--surface-2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 12px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: color .2s, border-color .2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .theme-btn:hover { 
+      color: var(--accent-text); 
+      border-color: var(--accent-dim); 
+    }
+    .nav-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    /* ── Footer system info ────────────────────────────────── */
+    .footer .system-info {
+        display: inline-block;
+        font-size: 11px;
+        color: var(--text-dim);
+        margin-left: 12px;
+        padding: 2px 10px;
+        background: var(--surface-2);
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        font-family: 'SF Mono', 'Fira Code', monospace;
+        letter-spacing: 0.02em;
+    }
+
+    .footer .system-info .status-dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        margin-right: 4px;
+    }
+
+    .footer .system-info .status-dot.gpu {
+        background: #6ab87a;
+        box-shadow: 0 0 4px rgba(106, 184, 122, 0.4);
+    }
+
+    .footer .system-info .status-dot.cpu {
+        background: var(--text-dim);
+    }
   </style>
 </head>
 <body>
 
 <!-- Navbar -->
 <nav class="navbar">
-  <a class="nav-logo" href="https://sipsip.ai" target="_blank" rel="noopener noreferrer">
-    <img src="/static/sipsip.png" alt="sipsip logo">
-    <span class="nav-logo-text">sipsip<em>.ai</em></span>
+  <a class="nav-logo" href="#" target="_blank" rel="noopener noreferrer">
+
   </a>
-  <button id="langToggle" class="lang-btn">
-    <span id="langText">English</span>
-    <i class="fas fa-chevron-down" style="font-size:9px;"></i>
-  </button>
+  <div class="nav-controls">
+    <button id="themeToggle" class="theme-btn" aria-label="Toggle theme">
+      <i class="fas fa-moon"></i>
+    </button>
+    <button id="langToggle" class="lang-btn">
+      <span id="langText">Русский</span>
+      <i class="fas fa-chevron-down" style="font-size:9px;"></i>
+    </button>
+  </div>
 </nav>
 
 <!-- Main -->
 <main class="main">
-  <h1 class="page-title" data-i18n="title">AI Video Transcriber</h1>
-  <p class="page-sub" data-i18n="subtitle">Supports automatic transcription and AI summary for 30+ platforms</p>
+  <h1 class="page-title" data-i18n="title">AI Видео Транскрибатор</h1>
+  <p class="page-sub" data-i18n="subtitle">Автоматическая транскрипция и ИИ-резюме для 30+ платформ</p>
 
   <!-- Error -->
   <div id="errorBanner" class="error-banner">
@@ -588,52 +689,75 @@
           id="videoUrl"
           type="url"
           class="url-input"
-          placeholder="Paste YouTube, Tiktok, Bilibili or other platform video URLs..."
+          placeholder="Вставьте ссылку на видео с YouTube, TikTok, Bilibili или других платформ..."
           data-i18n-placeholder="video_url_placeholder"
           required
         >
       </div>
       <button type="submit" id="submitBtn" class="btn-go">
         <i class="fas fa-search"></i>
-        <span data-i18n="start_transcription">Transcribe</span>
+        <span data-i18n="start_transcription">Транскрибировать</span>
       </button>
     </div>
   </form>
 
   <div class="upload-section" id="uploadSection">
     <div class="upload-zone" id="uploadZone" tabindex="0" role="button" aria-label="Upload files">
-      <p class="upload-or" data-i18n="upload_or">or drop your files</p>
+      <p class="upload-or" data-i18n="upload_or">или перетащите файлы</p>
       <p class="upload-formats" data-i18n="upload_formats">.mp3 · .mp4 · .wav · .m4a · .webm · .mkv · .ogg · .flac</p>
       <button type="button" class="btn-upload-pill" id="uploadPickBtn">
         <i class="fas fa-upload"></i>
-        <span data-i18n="upload_files_btn">Upload files</span>
+        <span data-i18n="upload_files_btn">Загрузить файлы</span>
       </button>
     </div>
     <input type="file" id="fileInput" accept=".txt,.mp3,.mp4,.m4a,.wav,.webm,.mkv,.ogg,.flac" hidden>
   </div>
 
-  <!-- Settings row: Summary Language + AI Settings toggle -->
+  <!-- Settings row: Summary Language + Transcription Language + AI Settings toggle -->
   <div class="settings-row">
-    <div class="inline-lang">
-      <label class="inline-lang-label" for="summaryLanguage" data-i18n="summary_language">Summary Language</label>
-      <select id="summaryLanguage" class="inline-lang-select">
-        <option value="en">English</option>
-        <option value="zh">中文（简体）</option>
-        <option value="es">Español</option>
-        <option value="fr">Français</option>
-        <option value="de">Deutsch</option>
-        <option value="it">Italiano</option>
-        <option value="pt">Português</option>
-        <option value="ru">Русский</option>
-        <option value="ja">日本語</option>
-        <option value="ko">한국어</option>
-        <option value="ar">العربية</option>
-      </select>
+    <div class="inline-lang-group">
+      <!-- Язык транскрипции -->
+      <div class="inline-lang">
+        <label class="inline-lang-label" for="transcriptionLanguage" data-i18n="transcription_language">Язык транскрипции</label>
+        <select id="transcriptionLanguage" class="inline-lang-select">
+          <option value="auto" data-i18n="transcription_auto">Авто</option>
+          <option value="ru">Русский</option>
+          <option value="en">English</option>
+          <option value="zh">中文</option>
+          <option value="es">Español</option>
+          <option value="fr">Français</option>
+          <option value="de">Deutsch</option>
+          <option value="it">Italiano</option>
+          <option value="pt">Português</option>
+          <option value="ja">日本語</option>
+          <option value="ko">한국어</option>
+          <option value="ar">العربية</option>
+          <option value="hi">हिन्दी</option>
+        </select>
+      </div>
+
+      <!-- Язык резюме -->
+      <div class="inline-lang">
+        <label class="inline-lang-label" for="summaryLanguage" data-i18n="summary_language">Язык резюме</label>
+        <select id="summaryLanguage" class="inline-lang-select">
+          <option value="en">English</option>
+          <option value="zh">中文（简体）</option>
+          <option value="ru">Русский</option>
+          <option value="es">Español</option>
+          <option value="fr">Français</option>
+          <option value="de">Deutsch</option>
+          <option value="it">Italiano</option>
+          <option value="pt">Português</option>
+          <option value="ja">日本語</option>
+          <option value="ko">한국어</option>
+          <option value="ar">العربية</option>
+        </select>
+      </div>
     </div>
 
     <button class="settings-toggle" id="settingsToggle">
       <i class="fas fa-cog" style="font-size:10px;"></i>
-      <span data-i18n="ai_settings">AI Settings</span>
+      <span data-i18n="ai_settings">Настройки AI</span>
       <i class="fas fa-chevron-down arrow"></i>
     </button>
   </div>
@@ -644,7 +768,7 @@
 
         <!-- Base URL (full row) -->
         <div class="span2">
-          <label class="s-label" data-i18n="model_base_url">Model API Base URL</label>
+          <label class="s-label" data-i18n="model_base_url">API-адрес модели</label>
           <input
             id="modelBaseUrl"
             class="s-input"
@@ -669,7 +793,7 @@
             >
             <button type="button" id="fetchModelsBtn" class="btn-fetch">
               <i class="fas fa-sync-alt" id="fetchIcon"></i>
-              <span data-i18n="fetch_models">Fetch</span>
+              <span data-i18n="fetch_models">Получить</span>
             </button>
           </div>
           <div id="fetchStatus" class="fetch-status"></div>
@@ -677,9 +801,9 @@
 
         <!-- Model selector -->
         <div>
-          <label class="s-label" data-i18n="model_select">Model</label>
+          <label class="s-label" data-i18n="model_select">Модель</label>
           <select id="modelSelect" class="s-select">
-            <option value="" data-i18n="model_default">— use server default —</option>
+            <option value="" data-i18n="model_default">— использовать серверную по умолчанию —</option>
           </select>
         </div>
 
@@ -693,14 +817,14 @@
     <!-- Empty state (default) -->
     <div class="empty-state" id="emptyState">
       <span class="es-icon">☕</span>
-      <span class="es-text" data-i18n="empty_hint">Paste a video URL or drop a file above and let AI do the heavy lifting.</span>
+      <span class="es-text" data-i18n="empty_hint">Вставьте ссылку на видео или загрузите файл, и ИИ сделает всю работу.</span>
     </div>
 
     <!-- Progress -->
     <div class="progress-panel" id="progressPanel">
       <div class="prog-top">
         <div class="prog-top-left">
-          <span data-i18n="processing_progress">Processing</span>
+          <span data-i18n="processing_progress">Обработка</span>
           <span class="mode-badge" id="modeBadge"></span>
         </div>
         <span id="progressStatus">0%</span>
@@ -708,7 +832,7 @@
       <div class="prog-bar">
         <div class="prog-fill" id="progressFill"></div>
       </div>
-      <div class="prog-msg" id="progressMessage" data-i18n="preparing">Preparing…</div>
+      <div class="prog-msg" id="progressMessage" data-i18n="preparing">Подготовка…</div>
     </div>
 
     <!-- Results -->
@@ -716,27 +840,27 @@
       <div class="res-top">
         <button class="btn-dl" id="downloadScript">
           <i class="fas fa-download"></i>
-          <span data-i18n="download_transcript">Transcript</span>
+          <span data-i18n="download_transcript">Транскрипция</span>
         </button>
         <button class="btn-dl" id="downloadTranslation" style="display:none;">
           <i class="fas fa-download"></i>
-          <span data-i18n="download_translation">Translation</span>
+          <span data-i18n="download_translation">Перевод</span>
         </button>
         <button class="btn-dl" id="downloadSummary">
           <i class="fas fa-download"></i>
-          <span data-i18n="download_summary">Summary</span>
+          <span data-i18n="download_summary">Резюме</span>
         </button>
       </div>
 
       <div class="tab-bar">
         <button class="tab-btn active" data-tab="script">
-          <span data-i18n="transcript_text">Transcript</span>
+          <span data-i18n="transcript_text">Транскрипция</span>
         </button>
         <button class="tab-btn" data-tab="summary">
-          <span data-i18n="intelligent_summary">AI Summary</span>
+          <span data-i18n="intelligent_summary">ИИ-резюме</span>
         </button>
         <button class="tab-btn" data-tab="translation" id="translationTabBtn" style="display:none;">
-          <span data-i18n="translation">Translation</span>
+          <span data-i18n="translation">Перевод</span>
         </button>
       </div>
 
@@ -754,7 +878,7 @@
   </div><!-- /result-panel -->
 
   <div class="footer">
-    <p data-i18n="footer_text">This tool is part of <a href="https://sipsip.ai" target="_blank" style="color:var(--accent-text);text-decoration:none;">sipsip.ai</a> — distill anything and get daily AI briefs from your favorite creators</p>
+    <p data-i18n="footer_text"></p>
   </div>
 </main>
 

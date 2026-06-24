@@ -4,6 +4,8 @@
 
 Инструмент на основе искусственного интеллекта для расшифровки и создания саммари (краткого изложения) видео и подкастов. Вставьте ссылку с YouTube, TikTok, Bilibili, Apple Podcasts, SoundCloud и более чем 30 других платформ **или загрузите локальный файл** (аудио, видео или простой текст).
 
+![Interface](ru_video.png)
+
 ## ✨ Возможности
 
 *   🎥 **Поддержка множества платформ**: Работает с YouTube, TikTok, Bilibili, Apple Podcasts, SoundCloud и более чем 30 другими сервисами.
@@ -48,10 +50,17 @@ cd AI-Video-Transcriber
 # Используя Docker Compose (проще всего)
 cp .env.example .env
 # Отредактируйте файл .env, если хотите задать значения по умолчанию на сервере (опционально)
-docker-compose up -d
+`docker compose up -d`
 
 # Или используя Docker напрямую
 docker build -t ai-video-transcriber .
+
+# или через команду, версия берётся из version
+
+chmod +x build.sh
+./build.sh
+
+
 docker run -p 8000:8000 --env-file .env ai-video-transcriber
 ```
 
@@ -187,7 +196,7 @@ AI-Video-Transcriber/
 | `HOST` | Адрес сервера | `0.0.0.0` | Нет |
 | `PORT` | Порт сервера | `8000` | Нет |
 | `WHISPER_MODEL_SIZE` | Размер модели Whisper | `base` | Нет |
-| `UPLOAD_MAX_MB` | Максимальный размер загружаемого локального файла (МБ) | `200` | Нет |
+| `UPLOAD_MAX_MB` | Максимальный размер загружаемого локального файла (МБ) | `2000` | Нет |
 
 Существует опциональный выделенный эндпоинт `POST /api/process-upload` с тем же поведением, что и отправка `file` в `/api/process-video`.
 
@@ -250,7 +259,7 @@ cp .env.example .env
 # Отредактируйте файл .env для установки значений по умолчанию на сервере (опционально)
 
 # Запуск с помощью Docker Compose (рекомендуется)
-docker-compose up -d
+`docker compose up -d`
 
 # Или ручная сборка и запуск
 docker build -t ai-video-transcriber .
@@ -272,10 +281,10 @@ docker ps
 docker logs ai-video-transcriber-ai-video-transcriber-1
 
 # Остановка сервиса
-docker-compose down
+`docker compose down`
 
 # Пересборка после изменений
-docker-compose build --no-cache
+`docker-compose build --no-cache`
 ```
 
 ### В: Каковы требования к памяти?

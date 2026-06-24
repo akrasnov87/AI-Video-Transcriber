@@ -7,7 +7,8 @@ class VideoTranscriber {
     this.currentTaskId  = null;
     this.eventSource    = null;
     this.apiBase        = '/api';
-    this.currentLang    = 'en';
+    this.currentLang    = 'ru';
+    this.currentTheme   = localStorage.getItem('vt_theme') || 'dark';
 
     /* Имитация прогресса */
     this.sp = {
@@ -30,6 +31,8 @@ class VideoTranscriber {
         model_select:            'Model',
         model_default:           '— use server default —',
         summary_language:        'Summary Language',
+        transcription_language:  'Transcription Language',
+        transcription_auto:      'Auto',
         processing_progress:     'Processing',
         preparing:               'Preparing…',
         transcript_text:         'Transcript',
@@ -39,7 +42,7 @@ class VideoTranscriber {
         download_translation:    'Translation',
         download_summary:        'Summary',
         empty_hint:              'Paste a video URL or drop a file above and let AI do the heavy lifting.',
-        footer_text:             'This tool is part of <a href="https://sipsip.ai" target="_blank" style="color:var(--accent-text);text-decoration:none;">sipsip.ai</a> — distill anything and get daily AI briefs from your favorite creators',
+        footer_text:             ' ',
         processing:              'Processing…',
         downloading_video:       'Downloading audio…',
         parsing_video:           'Parsing video info…',
@@ -80,6 +83,8 @@ class VideoTranscriber {
         model_select:            '模型',
         model_default:           '— 使用服务器默认 —',
         summary_language:        '摘要语言',
+        transcription_language:  '转录语言',
+        transcription_auto:      '自动',
         processing_progress:     '处理进度',
         preparing:               '准备中…',
         transcript_text:         '转录文本',
@@ -115,13 +120,72 @@ class VideoTranscriber {
         error_upload_type:       '不支持的文件类型',
         error_upload_empty:      '文件为空',
         error_upload_size:       (mb) => `文件超过 ${mb} MB 限制`,
+      },
+      ru: {
+        title:                   'AI Видео Транскрибатор',
+        subtitle:                'Автоматическая транскрипция и ИИ-резюме для 30+ платформ',
+        video_url_placeholder:   'Вставьте ссылку на видео с YouTube, TikTok, Bilibili или других платформ...',
+        start_transcription:     'Транскрибировать',
+        ai_settings:             'Настройки AI',
+        model_base_url:          'API-адрес модели',
+        model_base_url_placeholder: 'https://openrouter.ai/api/v1',
+        api_key:                 'API Key',
+        api_key_placeholder:     'sk-...',
+        fetch_models:            'Получить',
+        model_select:            'Модель',
+        model_default:           '— использовать серверную по умолчанию —',
+        summary_language:        'Язык резюме',
+        transcription_language:  'Язык транскрипции',
+        transcription_auto:      'Авто',
+        processing_progress:     'Обработка',
+        preparing:               'Подготовка…',
+        transcript_text:         'Транскрипция',
+        intelligent_summary:     'ИИ-резюме',
+        translation:             'Перевод',
+        download_transcript:     'Транскрипция',
+        download_translation:    'Перевод',
+        download_summary:        'Резюме',
+        empty_hint:              'Вставьте ссылку на видео или загрузите файл, и ИИ сделает всю работу.',
+        footer_text:             ' ',
+        processing:              'Обработка…',
+        downloading_video:       'Загрузка аудио…',
+        parsing_video:           'Анализ информации о видео…',
+        transcribing_audio:      'Транскрипция аудио…',
+        optimizing_transcript:   'Оптимизация транскрипции…',
+        generating_summary:      'Создание резюме…',
+        detecting_subtitles:     'Поиск субтитров…',
+        subtitle_found:          'Субтитры найдены! Обработка текста…',
+        no_subtitle:             'Субтитры не найдены, загрузка аудио…',
+        mode_subtitle:           '⚡ Субтитры',
+        mode_whisper:            '🎙 Whisper',
+        completed:               'Готово!',
+        error_invalid_url:       'Пожалуйста, введите корректную ссылку на видео',
+        error_processing_failed: 'Ошибка обработки: ',
+        error_no_download:       'Нет файлов для скачивания',
+        error_download_failed:   'Ошибка скачивания: ',
+        fetching_models:         'Получение списка моделей…',
+        models_loaded:           (n) => `Загружено ${n} моделей`,
+        models_error:            'Ошибка получения моделей',
+        upload_or:               'или перетащите файлы',
+        upload_formats:          '.mp3 · .mp4 · .wav · .m4a · .webm · .mkv · .ogg · .flac',
+        upload_files_btn:        'Загрузить файлы',
+        error_upload_type:       'Неподдерживаемый тип файла',
+        error_upload_empty:      'Файл пуст',
+        error_upload_size:       (mb) => `Файл превышает лимит ${mb} МБ`,
       }
     };
+
+    this.systemVersion = 'unknown';
+    this.systemInfo = null;
 
     this._initElements();
     this._bindEvents();
     this._loadSettings();
-    this._switchLang('en');
+    this._applyTheme(this.currentTheme);
+    this._switchLang(this.currentLang);
+
+    // Загрузка информации о системе после инициализации
+    setTimeout(() => this._loadSystemInfo(), 500);
   }
 
   /* ── Элементы ─────────────────────────────────────────── */
@@ -130,8 +194,10 @@ class VideoTranscriber {
     this.videoUrlInput      = document.getElementById('videoUrl');
     this.submitBtn          = document.getElementById('submitBtn');
     this.summaryLangSel     = document.getElementById('summaryLanguage');
+    this.transcriptionLangSel = document.getElementById('transcriptionLanguage');
     this.langToggle         = document.getElementById('langToggle');
     this.langText           = document.getElementById('langText');
+    this.themeToggle        = document.getElementById('themeToggle');
     this.errorBanner        = document.getElementById('errorBanner');
     this.errorMsg           = document.getElementById('errorMsg');
     this.emptyState         = document.getElementById('emptyState');
@@ -166,13 +232,91 @@ class VideoTranscriber {
     this._allowedUploadExts = new Set(['.txt', '.mp3', '.mp4', '.m4a', '.wav', '.webm', '.mkv', '.ogg', '.flac']);
   }
 
+  /* ── Информация о системе ─────────────────────────────── */
+  async _loadSystemInfo() {
+      try {
+          // Получение версии
+          const versionResp = await fetch(`${this.apiBase}/version`);
+          if (versionResp.ok) {
+              const versionData = await versionResp.json();
+              this.systemVersion = versionData.version || 'unknown';
+          }
+          
+          // Получение информации о системе
+          const infoResp = await fetch(`${this.apiBase}/system-info`);
+          if (infoResp.ok) {
+              const info = await infoResp.json();
+              this.systemInfo = info;
+              this._updateFooter();
+          }
+      } catch (e) {
+          console.warn('Не удалось загрузить информацию о системе:', e);
+      }
+  }
+
+  _updateFooter() {
+      const footer = document.querySelector('.footer p[data-i18n="footer_text"]');
+      if (!footer) return;
+      
+      const version = this.systemVersion || 'unknown';
+      const device = this.systemInfo?.whisper_device || 'cpu';
+      const compute = this.systemInfo?.whisper_compute_type || 'int8';
+      const cuda = this.systemInfo?.cuda_available ? '✅ GPU' : '💻 CPU';
+      const gpuName = this.systemInfo?.cuda_device_name || '';
+      
+      // Формируем информацию в зависимости от языка
+      const lang = this.currentLang;
+      let deviceLabel, computeLabel, versionLabel;
+      
+      if (lang === 'ru') {
+          deviceLabel = 'Устройство';
+          computeLabel = 'Тип вычислений';
+          versionLabel = 'Версия';
+      } else if (lang === 'zh') {
+          deviceLabel = '设备';
+          computeLabel = '计算类型';
+          versionLabel = '版本';
+      } else {
+          deviceLabel = 'Device';
+          computeLabel = 'Compute Type';
+          versionLabel = 'Version';
+      }
+      
+      // Формируем текст с информацией
+      let infoText = `${versionLabel}: ${version} | ${deviceLabel}: ${device} (${compute})`;
+      
+      if (gpuName && this.systemInfo?.cuda_available) {
+          infoText += ` | GPU: ${gpuName}`;
+      }
+      
+      // Добавляем эмодзи статуса
+      const statusEmoji = this.systemInfo?.cuda_available ? '🚀' : '💻';
+      infoText = `${statusEmoji} ${infoText}`;
+      
+      // Сохраняем оригинальный footer_text для использования в качестве префикса
+      const originalText = this.t('footer_text');
+      if (originalText && originalText.trim() && !originalText.includes('|')) {
+          // Если есть оригинальный текст, добавляем информацию после него
+          footer.innerHTML = `${originalText} <span style="color: var(--text-dim); font-size: 11px; margin-left: 12px;">${infoText}</span>`;
+      } else {
+          footer.textContent = infoText;
+      }
+  }
+
   /* ── События ───────────────────────────────────────────── */
   _bindEvents() {
     this.form.addEventListener('submit', (e) => { e.preventDefault(); this._startTranscription(); });
 
     this.langToggle.addEventListener('click', () => {
-      this._switchLang(this.currentLang === 'en' ? 'zh' : 'en');
+      const langs = ['ru', 'en', 'zh'];
+      const currentIdx = langs.indexOf(this.currentLang);
+      const nextIdx = (currentIdx + 1) % langs.length;
+      this._switchLang(langs[nextIdx]);
     });
+
+    if (this.themeToggle) {
+      this.themeToggle.addEventListener('click', () => this._toggleTheme());
+    }
 
     // Переключение настроек
     this.settingsToggle.addEventListener('click', () => {
@@ -191,7 +335,7 @@ class VideoTranscriber {
     this.apiKeyInput.addEventListener('input', debouncedFetch);
 
     // Сохранение настроек
-    [this.modelBaseUrl, this.apiKeyInput, this.modelSelect, this.summaryLangSel].forEach(el => {
+    [this.modelBaseUrl, this.apiKeyInput, this.modelSelect, this.summaryLangSel, this.transcriptionLangSel].forEach(el => {
       el.addEventListener('change', () => this._saveSettings());
     });
 
@@ -246,23 +390,46 @@ class VideoTranscriber {
   t(key) { return this.i18n[this.currentLang][key] || this.i18n['en'][key] || key; }
 
   _switchLang(lang) {
-    this.currentLang = lang;
-    this.langText.textContent = lang === 'en' ? 'English' : '中文';
-    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
-    document.title = this.t('title');
+      this.currentLang = lang;
+      const langNames = { ru: 'Русский', en: 'English', zh: '中文' };
+      this.langText.textContent = langNames[lang] || 'English';
+      document.documentElement.lang = lang;
+      document.title = this.t('title');
 
-    document.querySelectorAll('[data-i18n]').forEach(el => {
-      const v = this.t(el.dataset.i18n);
-      if (typeof v === 'string') {
-        // Для footer разрешаем HTML, для остальных — обычный текст
-        if (el.dataset.i18n === 'footer_text') el.innerHTML = v;
-        else el.textContent = v;
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+          const v = this.t(el.dataset.i18n);
+          if (typeof v === 'string') {
+              if (el.dataset.i18n === 'footer_text') {
+                  // Для футера используем специальную обработку
+                  this._updateFooter();
+              } else {
+                  el.textContent = v;
+              }
+          }
+      });
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+          const v = this.t(el.dataset.i18nPlaceholder);
+          if (typeof v === 'string') el.placeholder = v;
+      });
+  }
+
+  /* ── Тема ───────────────────────────────────────────────── */
+  _applyTheme(theme) {
+    this.currentTheme = theme;
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('vt_theme', theme);
+    
+    if (this.themeToggle) {
+      const icon = this.themeToggle.querySelector('i');
+      if (icon) {
+        icon.className = theme === 'dark' ? 'fas fa-moon' : 'fas fa-sun';
       }
-    });
-    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
-      const v = this.t(el.dataset.i18nPlaceholder);
-      if (typeof v === 'string') el.placeholder = v;
-    });
+    }
+  }
+
+  _toggleTheme() {
+    const newTheme = this.currentTheme === 'dark' ? 'light' : 'dark';
+    this._applyTheme(newTheme);
   }
 
   /* ── Сохранение настроек ─────────────────────────────── */
@@ -272,6 +439,9 @@ class VideoTranscriber {
       apiKey:   this.apiKeyInput.value,
       model:    this.modelSelect.value,
       summaryLang: this.summaryLangSel.value,
+      transcriptionLang: this.transcriptionLangSel.value,
+      lang:     this.currentLang,
+      theme:    this.currentTheme,
     };
     try { localStorage.setItem('vt_settings', JSON.stringify(s)); } catch (_) {}
   }
@@ -281,17 +451,17 @@ class VideoTranscriber {
       const raw = localStorage.getItem('vt_settings');
       if (!raw) return;
       const s = JSON.parse(raw);
-      if (s.baseUrl)     this.modelBaseUrl.value = s.baseUrl;
-      if (s.apiKey)      this.apiKeyInput.value  = s.apiKey;
-      if (s.summaryLang) this.summaryLangSel.value = s.summaryLang;
-      // Список моделей будет восстановлен после получения
+      if (s.baseUrl)          this.modelBaseUrl.value = s.baseUrl;
+      if (s.apiKey)           this.apiKeyInput.value  = s.apiKey;
+      if (s.summaryLang)      this.summaryLangSel.value = s.summaryLang;
+      if (s.transcriptionLang) this.transcriptionLangSel.value = s.transcriptionLang || 'auto';
+      if (s.lang)             this.currentLang = s.lang;
+      if (s.theme)            this.currentTheme = s.theme;
       this._savedModel = s.model || '';
 
-      // Автоматически открываем настройки, если сохранены учетные данные
       if (s.baseUrl || s.apiKey) {
         this.settingsBody.classList.add('open');
         this.settingsToggle.classList.add('open');
-        // Пытаемся получить список моделей автоматически
         if (s.baseUrl && s.apiKey) {
           setTimeout(() => this._fetchModels(true), 400);
         }
@@ -326,7 +496,6 @@ class VideoTranscriber {
       const data = await resp.json();
       const models = data.data || data.models || [];
 
-      // Перестраиваем список опций
       this.modelSelect.innerHTML = `<option value="">${this.t('model_default')}</option>`;
       models.forEach(m => {
         const opt = document.createElement('option');
@@ -335,7 +504,6 @@ class VideoTranscriber {
         this.modelSelect.appendChild(opt);
       });
 
-      // Восстанавливаем ранее выбранную модель
       if (this._savedModel) {
         this.modelSelect.value = this._savedModel;
         this._savedModel = '';
@@ -365,6 +533,7 @@ class VideoTranscriber {
 
     const url     = this.videoUrlInput.value.trim();
     const sumLang = this.summaryLangSel.value;
+    const transLang = this.transcriptionLangSel.value;
 
     if (!url) { this._showError(this.t('error_invalid_url')); return; }
 
@@ -376,6 +545,7 @@ class VideoTranscriber {
       const fd = new FormData();
       fd.append('url',              url);
       fd.append('summary_language', sumLang);
+      fd.append('transcription_language', transLang);
 
       const apiKey  = this.apiKeyInput.value.trim();
       const baseUrl = this.modelBaseUrl.value.trim().replace(/\/$/, '');
@@ -429,10 +599,12 @@ class VideoTranscriber {
     this._showProgress();
 
     const sumLang = this.summaryLangSel.value;
+    const transLang = this.transcriptionLangSel.value;
     try {
       const fd = new FormData();
       fd.append('file', file, file.name);
       fd.append('summary_language', sumLang);
+      fd.append('transcription_language', transLang);
 
       const apiKey  = this.apiKeyInput.value.trim();
       const baseUrl = this.modelBaseUrl.value.trim().replace(/\/$/, '');
@@ -531,43 +703,43 @@ class VideoTranscriber {
     const m = (msg || '').toLowerCase();
 
     // ── Путь с субтитрами (быстрый) ────────────────────────────
-    if (m.includes('获取成功') || m.includes('subtitle found') || m.includes('字幕获取')) {
+    if (m.includes('субтитры получены') || m.includes('subtitle found') || m.includes('获取成功') || m.includes('字幕获取')) {
       this.sp.stage = 'subtitle_found';
       this.sp.target = 55;
       this._setModeBadge('subtitle');
     }
     // ── Без субтитров → загрузка аудио (медленный) ─────────────
-    else if (m.includes('未找到字幕') || m.includes('no subtitle') || m.includes('下载视频音频') || m.includes('下载音频')) {
+    else if (m.includes('субтитры не найдены') || m.includes('no subtitle') || m.includes('未找到字幕') || m.includes('下载视频音频') || m.includes('下载音频')) {
       this.sp.stage = 'downloading';
       this.sp.target = 55;
       this._setModeBadge('whisper');
     }
-    else if (m.includes('读取文本') || (m.includes('read') && m.includes('text'))) {
+    else if (m.includes('чтение текста') || m.includes('read') && m.includes('text') || m.includes('读取文本')) {
       this.sp.stage = 'parsing';
       this.sp.target = 55;
       this._setModeBadge('whisper');
     }
-    else if (m.includes('转换音频') || m.includes('准备转录')) {
+    else if (m.includes('преобразование аудио') || m.includes('подготовка к транскрипции') || m.includes('转换音频') || m.includes('准备转录')) {
       this.sp.stage = 'downloading';
       this.sp.target = 55;
       this._setModeBadge('whisper');
     }
-    else if (m.includes('上传') || m.includes('upload')) {
+    else if (m.includes('загрузка') || m.includes('upload')) {
       this.sp.stage = 'preparing';
       this.sp.target = 40;
     }
     // ── Обнаружение субтитров ────────────────────────────────────
-    else if (m.includes('检测') && (m.includes('字幕') || m.includes('subtitle'))) {
+    else if (m.includes('поиск субтитров') || m.includes('проверка наличия субтитров') || (m.includes('检测') && (m.includes('字幕') || m.includes('subtitle')))) {
       this.sp.stage = 'subtitle';
       this.sp.target = 40;
     }
     // ── Другие этапы ─────────────────────────────────────────────
-    else if (m.includes('解析') || m.includes('pars'))                     { this.sp.stage = 'parsing';       this.sp.target = 60; }
-    else if (m.includes('下载') || m.includes('download'))                 { this.sp.stage = 'downloading';   this.sp.target = 60; }
-    else if (m.includes('转录') || m.includes('transcrib') || m.includes('whisper')) { this.sp.stage = 'transcribing';  this.sp.target = 80; }
-    else if (m.includes('优化') || m.includes('optimiz'))                  { this.sp.stage = 'optimizing';    this.sp.target = 90; }
-    else if (m.includes('摘要') || m.includes('summary'))                  { this.sp.stage = 'summarizing';   this.sp.target = 95; }
-    else if (m.includes('完成') || m.includes('complet'))                  { this.sp.stage = 'completed';     this.sp.target = 100; }
+    else if (m.includes('анализ') || m.includes('pars') || m.includes('解析'))          { this.sp.stage = 'parsing';       this.sp.target = 60; }
+    else if (m.includes('загрузка') || m.includes('download'))                     { this.sp.stage = 'downloading';   this.sp.target = 60; }
+    else if (m.includes('транскрипция') || m.includes('transcrib') || m.includes('whisper') || m.includes('转录')) { this.sp.stage = 'transcribing';  this.sp.target = 80; }
+    else if (m.includes('оптимизация') || m.includes('optimiz') || m.includes('优化')) { this.sp.stage = 'optimizing';    this.sp.target = 90; }
+    else if (m.includes('резюме') || m.includes('summary') || m.includes('摘要')) { this.sp.stage = 'summarizing';   this.sp.target = 95; }
+    else if (m.includes('завершена') || m.includes('complet') || m.includes('完成')) { this.sp.stage = 'completed';     this.sp.target = 100; }
 
     if (pct >= this.sp.target) this.sp.target = Math.min(pct + 8, 99);
   }
@@ -632,21 +804,18 @@ class VideoTranscriber {
     this.progressStatus.textContent = `${p}%`;
     this.progressFill.style.width   = `${p}%`;
 
-    // Перевод сообщений сервера
     const m = (msg || '').toLowerCase();
     let label = msg;
-    // ── Путь с субтитрами ──────────────────────────────────────
-    if      (m.includes('获取成功') || m.includes('subtitle found'))        label = this.t('subtitle_found');
-    else if (m.includes('未找到字幕') || m.includes('no subtitle'))         label = this.t('no_subtitle');
-    else if (m.includes('检测') && (m.includes('字幕') || m.includes('subtitle'))) label = this.t('detecting_subtitles');
-    // ── Путь аудио / Whisper ────────────────────────────────────
-    else if (m.includes('下载') || m.includes('download'))  label = this.t('downloading_video');
-    else if (m.includes('解析') || m.includes('pars'))      label = this.t('parsing_video');
-    else if (m.includes('转录') || m.includes('transcrib')) label = this.t('transcribing_audio');
-    else if (m.includes('优化') || m.includes('optimiz'))   label = this.t('optimizing_transcript');
-    else if (m.includes('摘要') || m.includes('summary'))   label = this.t('generating_summary');
-    else if (m.includes('完成') || m.includes('complet'))   label = this.t('completed');
-    else if (m.includes('准备') || m.includes('prepar'))    label = this.t('preparing');
+    if      (m.includes('субтитры получены') || m.includes('subtitle found') || m.includes('获取成功'))        label = this.t('subtitle_found');
+    else if (m.includes('субтитры не найдены') || m.includes('no subtitle') || m.includes('未找到字幕'))         label = this.t('no_subtitle');
+    else if (m.includes('поиск субтитров') || (m.includes('检测') && (m.includes('字幕') || m.includes('subtitle')))) label = this.t('detecting_subtitles');
+    else if (m.includes('загрузка') || m.includes('download'))  label = this.t('downloading_video');
+    else if (m.includes('анализ') || m.includes('pars') || m.includes('解析'))      label = this.t('parsing_video');
+    else if (m.includes('транскрипция') || m.includes('transcrib') || m.includes('转录')) label = this.t('transcribing_audio');
+    else if (m.includes('оптимизация') || m.includes('optimiz') || m.includes('优化'))   label = this.t('optimizing_transcript');
+    else if (m.includes('резюме') || m.includes('summary') || m.includes('摘要'))   label = this.t('generating_summary');
+    else if (m.includes('завершена') || m.includes('complet') || m.includes('完成'))   label = this.t('completed');
+    else if (m.includes('подготовка') || m.includes('prepar') || m.includes('准备'))    label = this.t('preparing');
 
     this.progressMessage.textContent = label;
   }
@@ -655,18 +824,17 @@ class VideoTranscriber {
     this.emptyState.style.display    = 'none';
     this.resultsPanel.classList.remove('show');
     this.progressPanel.classList.add('show');
-    // Сброс значка режима для новой задачи
     if (this.modeBadge) { this.modeBadge.style.display = 'none'; this.modeBadge.className = 'mode-badge'; }
     if (this.progressFill) this.progressFill.classList.remove('subtitle-mode');
   }
   _hideProgress() { this.progressPanel.classList.remove('show'); }
 
   /* ── Результаты ──────────────────────────────────────────── */
-  /** Приведение кода языка к формату для вкладок */
   _normLangTab(code) {
     if (!code) return '';
     const c = String(code).toLowerCase().trim();
     if (c.startsWith('zh')) return 'zh';
+    if (c.startsWith('ru')) return 'ru';
     if (c.length >= 2) return c.slice(0, 2);
     return c;
   }

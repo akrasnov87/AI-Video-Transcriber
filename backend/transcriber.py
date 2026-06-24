@@ -19,16 +19,47 @@ class Transcriber:
         self.model = None
         self.last_detected_language = None
         
+        # Чтение настроек из переменных окружения
+        self.device = os.getenv("WHISPER_DEVICE", "cpu")
+        self.compute_type = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
+        
+        # Автоматический выбор compute_type для GPU, если не указан явно
+        if self.device == "cuda" and self.compute_type == "int8":
+            self.compute_type = "float16"  # Рекомендуемый тип для GPU
+            logger.info(f"Автоматически установлен compute_type=float16 для GPU")
+        
+        logger.info(f"Whisper будет использовать: device={self.device}, compute_type={self.compute_type}")
+        
     def _load_model(self):
         """Отложенная загрузка модели"""
         if self.model is None:
-            logger.info(f"Загрузка модели Whisper: {self.model_size}")
+            logger.info(f"Загрузка модели Whisper: {self.model_size} на {self.device}")
             try:
-                self.model = WhisperModel(self.model_size, device="cpu", compute_type="int8")
-                logger.info("Модель загружена")
+                self.model = WhisperModel(
+                    self.model_size, 
+                    device=self.device, 
+                    compute_type=self.compute_type
+                )
+                logger.info(f"Модель успешно загружена на {self.device}")
             except Exception as e:
-                logger.error(f"Ошибка загрузки модели: {str(e)}")
-                raise Exception(f"Ошибка загрузки модели: {str(e)}")
+                logger.error(f"Ошибка загрузки модели на {self.device}: {str(e)}")
+                
+                # Fallback на CPU если GPU не доступен
+                if self.device == "cuda":
+                    logger.warning("GPU не доступен, пробую загрузить на CPU...")
+                    try:
+                        self.model = WhisperModel(
+                            self.model_size, 
+                            device="cpu", 
+                            compute_type="int8"
+                        )
+                        self.device = "cpu"
+                        self.compute_type = "int8"
+                        logger.info("Модель загружена на CPU (fallback)")
+                    except Exception as e2:
+                        raise Exception(f"Ошибка загрузки модели на CPU: {str(e2)}")
+                else:
+                    raise Exception(f"Ошибка загрузки модели: {str(e)}")
     
     async def transcribe(self, audio_path: str, language: Optional[str] = None) -> str:
         """

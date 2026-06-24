@@ -1,0 +1,21 @@
+services:
+  transcriber:
+    image: akrasnov87/ai-video-transcriber:1.0.0
+    ports:
+      - "8000:8000"
+    environment:
+      # Обязательно: API-ключ OpenAI (укажите в файле .env или измените здесь напрямую)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-your_openai_api_key_here}
+      # Опционально: пользовательский эндпоинт OpenAI
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      # Опционально: размер модели Whisper
+      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
+      # Опционально: максимальный размер одного загружаемого локального файла (МБ), соответствует локальной переменной окружения
+      - UPLOAD_MAX_MB=${UPLOAD_MAX_MB:-2000}
+      # Конфигурация сервера
+      - HOST=0.0.0.0
+      - PORT=8000
+    volumes:
+      # Монтирование директории для временных файлов, для удобства просмотра и управления загруженными файлами
+      - ./temp:/app/temp:rw
+    restart: unless-stopped

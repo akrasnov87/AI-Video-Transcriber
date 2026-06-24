@@ -22,6 +22,20 @@ from translator import Translator
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Получение версии из файла
+PROJECT_ROOT = Path(__file__).parent.parent
+VERSION_FILE = PROJECT_ROOT / "version"
+
+def get_version() -> str:
+    """Получение версии из файла"""
+    try:
+        if VERSION_FILE.exists():
+            with open(VERSION_FILE, 'r', encoding='utf-8') as f:
+                return f.read().strip()
+    except Exception:
+        pass
+    return "1.0.0"  # Версия по умолчанию
+
 app = FastAPI(title="AI Видео Транскрибатор", version="1.0.0")
 
 # Настройка CORS middleware
@@ -106,7 +120,7 @@ sse_connections = {}
 
 # Локальная загрузка: разрешенные типы и максимальный размер (МБ), можно настроить через UPLOAD_MAX_MB
 UPLOAD_ALLOWED_EXT = frozenset({".txt", ".mp3", ".mp4", ".m4a", ".wav", ".webm", ".mkv", ".ogg", ".flac"})
-UPLOAD_MAX_MB = int(os.getenv("UPLOAD_MAX_MB", "200"))
+UPLOAD_MAX_MB = int(os.getenv("UPLOAD_MAX_MB", "2000"))
 
 
 def _sanitize_title_for_filename(title: str) -> str:
@@ -318,6 +332,7 @@ async def list_models(
 async def _enqueue_upload_job(
     file: UploadFile,
     summary_language: str,
+    transcription_language: str,
     api_key: str,
     model_base_url: str,
     model_id: str,
@@ -375,6 +390,7 @@ async def _enqueue_upload_job(
         "summary": None,
         "error": None,
         "url": source_label,
+        "transcription_language": transcription_language,  # Сохраняем язык транскрипции
     }
     save_tasks(tasks)
 
@@ -386,6 +402,7 @@ async def _enqueue_upload_job(
             video_title,
             ext,
             summary_language,
+            transcription_language,
             api_key,
             model_base_url,
             model_id,
@@ -400,6 +417,7 @@ async def _enqueue_upload_job(
 async def process_video(
     url: str = Form(default=""),
     summary_language: str = Form(default="zh"),
+    transcription_language: str = Form(default="auto"),
     api_key: str = Form(default=""),
     model_base_url: str = Form(default=""),
     model_id: str = Form(default=""),
@@ -413,7 +431,7 @@ async def process_video(
     try:
         if file is not None and (file.filename or "").strip():
             return await _enqueue_upload_job(
-                file, summary_language, api_key, model_base_url, model_id
+                file, summary_language, transcription_language, api_key, model_base_url, model_id
             )
 
         stripped = (url or "").strip()
@@ -446,12 +464,15 @@ async def process_video(
             "script": None,
             "summary": None,
             "error": None,
-            "url": url
+            "url": url,
+            "transcription_language": transcription_language,  # Сохраняем язык транскрипции
         }
         save_tasks(tasks)
         
         # Создание и отслеживание асинхронной задачи
-        task = asyncio.create_task(process_video_task(task_id, url, summary_language, api_key, model_base_url, model_id))
+        task = asyncio.create_task(process_video_task(
+            task_id, url, summary_language, transcription_language, api_key, model_base_url, model_id
+        ))
         active_tasks[task_id] = task
         
         return {"task_id": task_id, "message": "Задача создана, обработка выполняется..."}
@@ -466,6 +487,7 @@ async def process_video_task(
     task_id: str,
     url: str,
     summary_language: str,
+    transcription_language: str = "auto",
     api_key: str = "",
     model_base_url: str = "",
     model_id: str = "",
@@ -538,7 +560,10 @@ async def process_video_task(
             save_tasks(tasks)
             await broadcast_task_update(task_id, tasks[task_id])
 
-            raw_script = await transcriber.transcribe(audio_path)
+            # Если выбран конкретный язык (не auto), передаем его в Whisper для ускорения
+            trans_lang = None if transcription_language == "auto" else transcription_language
+            logger.info(f"Язык транскрипции: {trans_lang if trans_lang else 'автоопределение'}")
+            raw_script = await transcriber.transcribe(audio_path, language=trans_lang)
 
         await _run_post_extract_pipeline(
             task_id=task_id,
@@ -572,13 +597,14 @@ async def process_video_task(
 async def process_upload(
     file: UploadFile = File(...),
     summary_language: str = Form(default="zh"),
+    transcription_language: str = Form(default="auto"),
     api_key: str = Form(default=""),
     model_base_url: str = Form(default=""),
     model_id: str = Form(default=""),
 ):
     """Отдельный эндпоинт для загрузки; логика аналогична /api/process-video с file."""
     return await _enqueue_upload_job(
-        file, summary_language, api_key, model_base_url, model_id
+        file, summary_language, transcription_language, api_key, model_base_url, model_id
     )
 
 
@@ -589,6 +615,7 @@ async def process_upload_task(
     video_title: str,
     ext_lower: str,
     summary_language: str,
+    transcription_language: str = "auto",
     api_key: str = "",
     model_base_url: str = "",
     model_id: str = "",
@@ -645,7 +672,10 @@ async def process_upload_task(
             save_tasks(tasks)
             await broadcast_task_update(task_id, tasks[task_id])
 
-            raw_script = await transcriber.transcribe(audio_path)
+            # Если выбран конкретный язык (не auto), передаем его в Whisper для ускорения
+            trans_lang = None if transcription_language == "auto" else transcription_language
+            logger.info(f"Язык транскрипции (загрузка): {trans_lang if trans_lang else 'автоопределение'}")
+            raw_script = await transcriber.transcribe(audio_path, language=trans_lang)
 
         await _run_post_extract_pipeline(
             task_id=task_id,
@@ -811,6 +841,25 @@ async def get_active_tasks():
         "processing_urls": processing_count,
         "task_ids": list(active_tasks.keys())
     }
+
+@app.get("/api/system-info")
+async def system_info():
+    """Информация о системе и доступных устройствах"""
+    import torch
+    info = {
+        "version": get_version(),  # Добавляем версию
+        "whisper_device": transcriber.device,
+        "whisper_compute_type": transcriber.compute_type,
+        "cuda_available": torch.cuda.is_available(),
+        "cuda_device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
+        "cuda_device_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+    }
+    return info
+
+@app.get("/api/version")
+async def get_api_version():
+    """Получение версии приложения"""
+    return {"version": get_version()}
 
 if __name__ == "__main__":
     import uvicorn

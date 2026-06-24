@@ -260,6 +260,7 @@ class VideoTranscriber {
       
       const version = this.systemVersion || 'unknown';
       const device = this.systemInfo?.whisper_device || 'cpu';
+      const size = this.systemInfo?.whisper_size || 'unknown';
       const compute = this.systemInfo?.whisper_compute_type || 'int8';
       const cuda = this.systemInfo?.cuda_available ? '✅ GPU' : '💻 CPU';
       const gpuName = this.systemInfo?.cuda_device_name || '';
@@ -283,7 +284,7 @@ class VideoTranscriber {
       }
       
       // Формируем текст с информацией
-      let infoText = `${versionLabel}: ${version} | ${deviceLabel}: ${device} (${compute})`;
+      let infoText = `${versionLabel}: ${version} | ${deviceLabel}: ${device} (${compute}) - ${size}`;
       
       if (gpuName && this.systemInfo?.cuda_available) {
           infoText += ` | GPU: ${gpuName}`;

@@ -57,9 +57,22 @@ app.mount("/static", StaticFiles(directory=str(PROJECT_ROOT / "static")), name="
 TEMP_DIR = PROJECT_ROOT / "temp"
 TEMP_DIR.mkdir(exist_ok=True)
 
-# Инициализация обработчиков
+# ── ИНИЦИАЛИЗАЦИЯ ОБРАБОТЧИКОВ С ПАРАМЕТРАМИ ИЗ ENV ──
+
+# Чтение настроек Whisper из переменных окружения
+WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")
+WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
+WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
+
+logger.info(f"Инициализация Whisper: model={WHISPER_MODEL_SIZE}, device={WHISPER_DEVICE}, compute_type={WHISPER_COMPUTE_TYPE}")
+
+# Создаем экземпляры с параметрами из ENV
 video_processor = VideoProcessor()
-transcriber = Transcriber()
+transcriber = Transcriber(
+    model_size=WHISPER_MODEL_SIZE,
+    device=WHISPER_DEVICE,
+    compute_type=WHISPER_COMPUTE_TYPE
+)
 summarizer = Summarizer()
 translator = Translator()
 
@@ -848,7 +861,8 @@ async def system_info():
     info = {
         "version": get_version(),  # Добавляем версию
         "whisper_device": transcriber.device,
-        "whisper_compute_type": transcriber.compute_type
+        "whisper_compute_type": transcriber.compute_type,
+        "whisper_size": transcriber.model_size
     }
     return info
 

@@ -8,27 +8,34 @@ logger = logging.getLogger(__name__)
 class Transcriber:
     """Аудио транскрибатор, использующий Faster-Whisper для преобразования речи в текст"""
     
-    def __init__(self, model_size: str = "base"):
+    def __init__(
+        self, 
+        model_size: str = "base",
+        device: Optional[str] = None,
+        compute_type: Optional[str] = None
+    ):
         """
         Инициализация транскрибатора
         
         Args:
             model_size: Размер модели Whisper (tiny, base, small, medium, large)
+            device: Устройство для запуска ("cpu" или "cuda")
+            compute_type: Тип вычислений ("int8", "float16", "float32")
         """
         self.model_size = model_size
         self.model = None
         self.last_detected_language = None
         
-        # Чтение настроек из переменных окружения
-        self.device = os.getenv("WHISPER_DEVICE", "cpu")
-        self.compute_type = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
+        # Чтение настроек из переменных окружения (если не переданы явно)
+        self.device = device or os.getenv("WHISPER_DEVICE", "cpu")
+        self.compute_type = compute_type or os.getenv("WHISPER_COMPUTE_TYPE", "int8")
         
         # Автоматический выбор compute_type для GPU, если не указан явно
         if self.device == "cuda" and self.compute_type == "int8":
             self.compute_type = "float16"  # Рекомендуемый тип для GPU
             logger.info(f"Автоматически установлен compute_type=float16 для GPU")
         
-        logger.info(f"Whisper будет использовать: device={self.device}, compute_type={self.compute_type}")
+        logger.info(f"Whisper будет использовать: device={self.device}, compute_type={self.compute_type}, model={self.model_size}")
         
     def _load_model(self):
         """Отложенная загрузка модели"""

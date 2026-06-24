@@ -10,16 +10,27 @@ services:
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
       # Опционально: размер модели Whisper
       - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
-      # или "cpu" если GPU нет
+      # Устройство для Whisper: cuda или cpu
       - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
-      # для GPU, или "int8" для CPU
+      # Тип вычислений: float16 для GPU, int8 для CPU
       - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
-      # Опционально: максимальный размер одного загружаемого локального файла (МБ), соответствует локальной переменной окружения
+      # Опционально: максимальный размер одного загружаемого локального файла (МБ)
       - UPLOAD_MAX_MB=${UPLOAD_MAX_MB:-2000}
       # Конфигурация сервера
       - HOST=0.0.0.0
       - PORT=8000
     volumes:
-      # Монтирование директории для временных файлов, для удобства просмотра и управления загруженными файлами
+      # Монтирование директории для временных файлов
       - ./temp:/app/temp:rw
     restart: unless-stopped
+    # ═══════════════════════════════════════════════════════════════
+    # ДОБАВЬТЕ ЭТИ СТРОКИ ДЛЯ GPU:
+    # ═══════════════════════════════════════════════════════════════
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

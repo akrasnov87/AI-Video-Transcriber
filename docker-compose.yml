@@ -4,30 +4,32 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # Обязательно: API-ключ OpenAI (укажите в файле .env или измените здесь напрямую)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-your_openai_api_key_here}
-      # Опционально: пользовательский эндпоинт OpenAI
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      # Опционально: размер модели Whisper
       - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
-      # или "cpu" если GPU нет
       - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
-      # для GPU, или "int8" для CPU
       - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
-      # Опционально: максимальный размер одного загружаемого локального файла (МБ), соответствует локальной переменной окружения
       - UPLOAD_MAX_MB=${UPLOAD_MAX_MB:-200}
-      # Конфигурация сервера
       - HOST=0.0.0.0
       - PORT=8000
     # volumes:
-      # Монтирование директории для временных файлов, для удобства просмотра и управления загруженными файлами
       # - ./temp:/app/temp
     restart: unless-stopped
-    
-    # Ограничение ресурсов (опционально)
+    # ═══════════════════════════════════════════════════════════════
+    # ДОБАВЬТЕ ЭТИ СТРОКИ ДЛЯ GPU:
+    # ═══════════════════════════════════════════════════════════════
+    runtime: nvidia
     deploy:
       resources:
-        limits:
-          memory: 2G
         reservations:
-          memory: 1G
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Ограничение ресурсов (опционально)
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 2G
+    #     reservations:
+    #       memory: 1G

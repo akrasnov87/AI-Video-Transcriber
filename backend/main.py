@@ -845,14 +845,10 @@ async def get_active_tasks():
 @app.get("/api/system-info")
 async def system_info():
     """Информация о системе и доступных устройствах"""
-    import torch
     info = {
         "version": get_version(),  # Добавляем версию
         "whisper_device": transcriber.device,
-        "whisper_compute_type": transcriber.compute_type,
-        "cuda_available": torch.cuda.is_available(),
-        "cuda_device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
-        "cuda_device_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        "whisper_compute_type": transcriber.compute_type
     }
     return info
 

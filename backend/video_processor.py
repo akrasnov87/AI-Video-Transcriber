@@ -11,6 +11,13 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# ── ДОБАВЛЯЕМ ОТДЕЛЬНЫЙ ЛОГГЕР ДЛЯ ПРОГРЕССА ──
+progress_logger = logging.getLogger('progress')
+if not progress_logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('%(asctime)s | 🔄 %(message)s', datefmt='%H:%M:%S'))
+    progress_logger.addHandler(handler)
+
 class VideoProcessor:
     """Обработчик видео, использующий yt-dlp для загрузки и конвертации видео"""
     
@@ -41,6 +48,9 @@ class VideoProcessor:
         unique_id = str(uuid.uuid4())[:8]
         out_path = output_dir / f"upload_norm_{unique_id}.m4a"
 
+        input_size_mb = input_path.stat().st_size / (1024 * 1024)
+        progress_logger.info(f"🔄 Нормализация аудио: {input_path.name} ({input_size_mb:.1f} МБ)")
+
         cmd = [
             "ffmpeg", "-y", "-nostdin", "-i", str(input_path.resolve()),
             "-vn", "-ac", "1", "-ar", "16000",
@@ -57,6 +67,9 @@ class VideoProcessor:
                 raise Exception("FFmpeg не создал выходной файл")
 
         await asyncio.to_thread(_run)
+        
+        output_size_mb = out_path.stat().st_size / (1024 * 1024)
+        progress_logger.info(f"✅ Нормализация завершена: {out_path.name} ({output_size_mb:.1f} МБ)")
         return str(out_path)
     
     async def fetch_subtitles(self, url: str, output_dir: Path) -> tuple[Optional[str], Optional[str], Optional[str]]:
@@ -77,6 +90,7 @@ class VideoProcessor:
             # 1. Быстрая проверка: получение информации о видео и доступности субтитров (без загрузки)
             check_opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
             with yt_dlp.YoutubeDL(check_opts) as ydl:
+                progress_logger.info(f"🔍 Проверка субтитров для: {url[:60]}...")
                 info = await asyncio.to_thread(ydl.extract_info, url, False)
 
             video_title = info.get("title", "unknown")
@@ -88,7 +102,7 @@ class VideoProcessor:
             auto_langs = [k for k in auto_caps if not k.startswith("live_chat")]
 
             if not manual_langs and not auto_langs:
-                logger.info(f"Видео не имеет доступных субтитров: {url}")
+                progress_logger.info(f"ℹ️ Субтитры не найдены для: {url[:60]}...")
                 return None, video_title, None
 
             # Приоритет ручным субтитрам, затем автоматическим
@@ -101,9 +115,9 @@ class VideoProcessor:
                 (lang for lang in _priority if lang in candidate_langs),
                 candidate_langs[0],
             )
-            logger.info(
-                f"Обнаружены {'ручные' if prefer_manual else 'автоматические'} субтитры, выбран язык: {prefer_lang}"
-                f" (доступно {len(candidate_langs)} вариантов)"
+            progress_logger.info(
+                f"📝 Найдены {'ручные' if prefer_manual else 'автоматические'} субтитры, язык: {prefer_lang} "
+                f"(доступно {len(candidate_langs)} вариантов)"
             )
 
             # 2. Загрузка только субтитров (без аудио/видео)
@@ -120,15 +134,17 @@ class VideoProcessor:
                 "noplaylist": True,
             }
             with yt_dlp.YoutubeDL(dl_opts) as ydl:
+                progress_logger.info(f"⬇️ Загрузка субтитров...")
                 await asyncio.to_thread(ydl.download, [url])
 
             # 3. Поиск загруженного файла субтитров
             sub_files = list(sub_dir.glob("*.vtt")) + list(sub_dir.glob("*.srt"))
             if not sub_files:
-                logger.warning("Файл субтитров не найден после загрузки, переход в аудиорежим")
+                progress_logger.warning("⚠️ Файл субтитров не найден после загрузки")
                 return None, video_title, None
 
             sub_file = sub_files[0]
+            progress_logger.info(f"📄 Файл субтитров: {sub_file.name}")
 
             # Извлечение кода языка из имени файла (например, sub.en.vtt → en)
             stem_parts = sub_file.stem.split(".")
@@ -141,16 +157,16 @@ class VideoProcessor:
                 entries = self._parse_srt(str(sub_file))
 
             if not entries:
-                logger.warning("Результат парсинга субтитров пуст, переход в аудиорежим")
+                progress_logger.warning("⚠️ Результат парсинга субтитров пуст")
                 return None, video_title, None
 
             # 5. Форматирование в Markdown, совместимый с выводом Whisper
             formatted = self._format_subtitle_entries(entries, file_lang)
-            logger.info(f"Субтитры успешно получены: lang={file_lang}, {len(entries)} записей")
+            progress_logger.info(f"✅ Субтитры успешно получены: lang={file_lang}, {len(entries)} записей")
             return formatted, video_title, file_lang
 
         except Exception as e:
-            logger.warning(f"Ошибка получения субтитров (переход к загрузке аудио): {e}")
+            progress_logger.warning(f"⚠️ Ошибка получения субтитров: {str(e)[:100]}...")
             return None, None, None
         finally:
             if sub_dir.exists():
@@ -350,6 +366,7 @@ class VideoProcessor:
             ydl_opts = self.ydl_opts.copy()
             ydl_opts['outtmpl'] = output_template
             
+            progress_logger.info(f"⬇️ Загрузка видео: {url[:60]}...")
             logger.info(f"Начало загрузки видео: {url}")
             
             import asyncio
@@ -358,15 +375,20 @@ class VideoProcessor:
                     # Заголовок и длительность уже получены в fetch_subtitles
                     video_title = prefetched_title
                     expected_duration = 0
-                    logger.info(f"Использование предварительно полученного заголовка (пропуск extract_info): {video_title}")
+                    progress_logger.info(f"📹 Использование предварительного заголовка: {video_title[:50]}...")
                 else:
                     # Получение информации о видео (в отдельном потоке для избежания блокировки)
+                    progress_logger.info(f"⏳ Получение информации о видео...")
                     info = await asyncio.to_thread(ydl.extract_info, url, False)
                     video_title = info.get('title', 'unknown')
                     expected_duration = info.get('duration') or 0
+                    duration_min = expected_duration // 60
+                    duration_sec = expected_duration % 60
+                    progress_logger.info(f"📹 Видео: {video_title[:50]}..., длительность: {duration_min}:{duration_sec:02d}")
                     logger.info(f"Заголовок видео: {video_title}")
                 
                 # Загрузка видео (в отдельном потоке)
+                progress_logger.info(f"⬇️ Загрузка аудио...")
                 await asyncio.to_thread(ydl.download, [url])
             
             # Поиск созданного m4a файла
@@ -382,6 +404,9 @@ class VideoProcessor:
                 else:
                     raise Exception("Аудиофайл не найден")
             
+            file_size_mb = os.path.getsize(audio_file) / (1024 * 1024)
+            progress_logger.info(f"✅ Аудио загружено: {os.path.basename(audio_file)} ({file_size_mb:.1f} МБ)")
+            
             # Проверка длительности, при значительном расхождении с оригиналом — попытка исправления
             try:
                 import subprocess, shlex
@@ -392,6 +417,9 @@ class VideoProcessor:
                 actual_duration = 0.0
             
             if expected_duration and actual_duration and abs(actual_duration - expected_duration) / expected_duration > 0.1:
+                progress_logger.warning(
+                    f"⚠️ Аномальная длительность: ожидалось {expected_duration}с, получено {actual_duration}с. Попытка исправления..."
+                )
                 logger.warning(
                     f"Аномальная длительность аудио: ожидалось {expected_duration}с, получено {actual_duration}с. Попытка перепаковки..."
                 )
@@ -404,6 +432,7 @@ class VideoProcessor:
                     # Повторная проверка
                     out2 = subprocess.check_output(probe_cmd.replace(shlex.quote(audio_file.rsplit('.',1)[0]+'.m4a'), shlex.quote(audio_file)), shell=True).decode().strip()
                     actual_duration2 = float(out2) if out2 else 0.0
+                    progress_logger.info(f"✅ Перепаковка завершена, новая длительность ≈ {actual_duration2:.2f}с")
                     logger.info(f"Перепаковка завершена, новая длительность ≈ {actual_duration2:.2f}с")
                 except Exception as e:
                     logger.error(f"Ошибка перепаковки: {e}")
@@ -412,6 +441,7 @@ class VideoProcessor:
             return audio_file, video_title
             
         except Exception as e:
+            progress_logger.error(f"❌ Ошибка загрузки видео: {str(e)[:100]}...")
             logger.error(f"Ошибка загрузки видео: {str(e)}")
             raise Exception(f"Ошибка загрузки видео: {str(e)}")
     

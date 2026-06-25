@@ -234,6 +234,25 @@ class VideoTranscriber {
     this.fileInput          = document.getElementById('fileInput');
     this.uploadMaxMb        = 200;
     this._allowedUploadExts = new Set(['.txt', '.mp3', '.mp4', '.m4a', '.wav', '.webm', '.mkv', '.ogg', '.flac']);
+
+    // Загружаем лимит с сервера
+    setTimeout(() => this._loadUploadLimit(), 300);
+  }
+
+  /* ── Загрузка лимита загрузки с сервера ───────────────── */
+  async _loadUploadLimit() {
+      try {
+          const resp = await fetch(`${this.apiBase}/system-info`);
+          if (resp.ok) {
+              const config = await resp.json();
+              if (config.upload_max_mb) {
+                  this.uploadMaxMb = config.upload_max_mb;
+                  console.log(`📦 Лимит загрузки: ${this.uploadMaxMb} МБ`);
+              }
+          }
+      } catch (e) {
+          console.warn('Не удалось загрузить лимит загрузки, используется значение по умолчанию:', e);
+      }
   }
 
   /* ── Информация о системе ─────────────────────────────── */

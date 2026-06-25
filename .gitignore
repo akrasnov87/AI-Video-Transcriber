@@ -65,3 +65,4 @@ temp/
 # Model cache
 models/
 .cache/
+hf_cache

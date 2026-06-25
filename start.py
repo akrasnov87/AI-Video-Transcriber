@@ -7,6 +7,7 @@ import os
 import sys
 import subprocess
 from pathlib import Path
+from dotenv import load_dotenv
 
 def check_dependencies():
     """Проверка установленных зависимостей"""
@@ -77,6 +78,15 @@ def setup_environment():
 
 def main():
     """Основная функция"""
+
+    # Загружаем .env файл
+    env_file = Path(__file__).parent / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+        print(f"📄 Загружен .env файл: {env_file}")
+    else:
+        print("ℹ️  Файл .env не найден, используются системные переменные")
+
     # Проверка использования производственного режима (отключение горячей перезагрузки)
     production_mode = "--prod" in sys.argv or os.getenv("PRODUCTION_MODE") == "true"
     

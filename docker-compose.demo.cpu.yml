@@ -1,0 +1,28 @@
+services:
+  transcriber:
+    image: akrasnov87/ai-video-transcriber:1.0.0
+    ports:
+      - "8000:8000"
+    environment:
+      # Обязательно: API-ключ OpenAI (укажите в файле .env или измените здесь напрямую)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-your_openai_api_key_here}
+      # Опционально: пользовательский эндпоинт OpenAI
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      # Опционально: размер модели Whisper
+      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
+      # Устройство для Whisper: cuda или cpu
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
+      # Тип вычислений: float16 для GPU, int8 для CPU
+      - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
+      # Опционально: максимальный размер одного загружаемого локального файла (МБ)
+      - UPLOAD_MAX_MB=${UPLOAD_MAX_MB:-2000}
+      # Конфигурация сервера
+      - HOST=0.0.0.0
+      - PORT=8000
+      - HF_HOME=/app/cache/huggingface
+      - TRANSFORMERS_CACHE=/app/cache/huggingface/hub
+      - PYTORCH_TRANSFORMERS_CACHE=/app/cache/huggingface/hub
+    volumes:
+      - ./temp:/app/temp:rw
+      - ./hf_cache:/app/cache/huggingface:rw
+    restart: unless-stopped

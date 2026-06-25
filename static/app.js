@@ -31,6 +31,7 @@ class VideoTranscriber {
         model_select:            'Model',
         model_default:           '— use server default —',
         summary_language:        'Summary Language',
+        simple_format:           'Simple format (with timestamps)',
         transcription_language:  'Transcription Language',
         transcription_auto:      'Auto',
         processing_progress:     'Processing',
@@ -82,6 +83,7 @@ class VideoTranscriber {
         fetch_models:            '获取',
         model_select:            '模型',
         model_default:           '— 使用服务器默认 —',
+        simple_format:           '简单格式（带时间戳）',
         summary_language:        '摘要语言',
         transcription_language:  '转录语言',
         transcription_auto:      '自动',
@@ -135,6 +137,7 @@ class VideoTranscriber {
         model_select:            'Модель',
         model_default:           '— использовать серверную по умолчанию —',
         summary_language:        'Язык резюме',
+        simple_format:           'Простой формат (с временными метками)',
         transcription_language:  'Язык транскрипции',
         transcription_auto:      'Авто',
         processing_progress:     'Обработка',
@@ -195,6 +198,7 @@ class VideoTranscriber {
     this.submitBtn          = document.getElementById('submitBtn');
     this.summaryLangSel     = document.getElementById('summaryLanguage');
     this.transcriptionLangSel = document.getElementById('transcriptionLanguage');
+    this.simpleFormatChk    = document.getElementById('simpleFormat'); // ← ДОБАВЛЕНО
     this.langToggle         = document.getElementById('langToggle');
     this.langText           = document.getElementById('langText');
     this.themeToggle        = document.getElementById('themeToggle');
@@ -235,14 +239,12 @@ class VideoTranscriber {
   /* ── Информация о системе ─────────────────────────────── */
   async _loadSystemInfo() {
       try {
-          // Получение версии
           const versionResp = await fetch(`${this.apiBase}/version`);
           if (versionResp.ok) {
               const versionData = await versionResp.json();
               this.systemVersion = versionData.version || 'unknown';
           }
           
-          // Получение информации о системе
           const infoResp = await fetch(`${this.apiBase}/system-info`);
           if (infoResp.ok) {
               const info = await infoResp.json();
@@ -260,12 +262,9 @@ class VideoTranscriber {
       
       const version = this.systemVersion || 'unknown';
       const device = this.systemInfo?.whisper_device || 'cpu';
-      const size = this.systemInfo?.whisper_size || 'unknown';
+      const size = this.systemInfo?.whisper_model || 'unknown';
       const compute = this.systemInfo?.whisper_compute_type || 'int8';
-      const cuda = this.systemInfo?.cuda_available ? '✅ GPU' : '💻 CPU';
-      const gpuName = this.systemInfo?.cuda_device_name || '';
       
-      // Формируем информацию в зависимости от языка
       const lang = this.currentLang;
       let deviceLabel, computeLabel, versionLabel;
       
@@ -283,25 +282,10 @@ class VideoTranscriber {
           versionLabel = 'Version';
       }
       
-      // Формируем текст с информацией
-      let infoText = `${versionLabel}: ${version} | ${deviceLabel}: ${device} (${compute}) - ${size}`;
+      const statusEmoji = device === 'cuda' ? '🚀' : '💻';
+      const infoText = `${statusEmoji} ${versionLabel}: ${version} | ${deviceLabel}: ${device} (${compute}) - ${size}`;
       
-      if (gpuName && this.systemInfo?.cuda_available) {
-          infoText += ` | GPU: ${gpuName}`;
-      }
-      
-      // Добавляем эмодзи статуса
-      const statusEmoji = this.systemInfo?.cuda_available ? '🚀' : '💻';
-      infoText = `${statusEmoji} ${infoText}`;
-      
-      // Сохраняем оригинальный footer_text для использования в качестве префикса
-      const originalText = this.t('footer_text');
-      if (originalText && originalText.trim() && !originalText.includes('|')) {
-          // Если есть оригинальный текст, добавляем информацию после него
-          footer.innerHTML = `${originalText} <span style="color: var(--text-dim); font-size: 11px; margin-left: 12px;">${infoText}</span>`;
-      } else {
-          footer.textContent = infoText;
-      }
+      footer.innerHTML = `<span style="font-size: 11px; color: var(--text-dim);">${infoText}</span>`;
   }
 
   /* ── События ───────────────────────────────────────────── */
@@ -319,33 +303,28 @@ class VideoTranscriber {
       this.themeToggle.addEventListener('click', () => this._toggleTheme());
     }
 
-    // Переключение настроек
     this.settingsToggle.addEventListener('click', () => {
       const open = this.settingsBody.classList.toggle('open');
       this.settingsToggle.classList.toggle('open', open);
     });
 
-    // Получение списка моделей
     this.fetchModelsBtn.addEventListener('click', () => this._fetchModels());
 
-    // Автоматическое получение моделей при заполнении полей (с задержкой)
     const debouncedFetch = this._debounce(() => {
       if (this.modelBaseUrl.value.trim() && this.apiKeyInput.value.trim()) this._fetchModels();
     }, 900);
     this.modelBaseUrl.addEventListener('input', debouncedFetch);
     this.apiKeyInput.addEventListener('input', debouncedFetch);
 
-    // Сохранение настроек
-    [this.modelBaseUrl, this.apiKeyInput, this.modelSelect, this.summaryLangSel, this.transcriptionLangSel].forEach(el => {
+    // Сохранение настроек — ДОБАВЛЕН simpleFormatChk
+    [this.modelBaseUrl, this.apiKeyInput, this.modelSelect, this.summaryLangSel, this.transcriptionLangSel, this.simpleFormatChk].forEach(el => {
       el.addEventListener('change', () => this._saveSettings());
     });
 
-    // Вкладки
     this.tabBtns.forEach(btn => {
       btn.addEventListener('click', () => this._switchTab(btn.dataset.tab));
     });
 
-    // Загрузка файлов
     this.dlScript.addEventListener('click',      () => this._downloadFile('script'));
     this.dlTranslation.addEventListener('click', () => this._downloadFile('translation'));
     this.dlSummary.addEventListener('click',     () => this._downloadFile('summary'));
@@ -401,7 +380,6 @@ class VideoTranscriber {
           const v = this.t(el.dataset.i18n);
           if (typeof v === 'string') {
               if (el.dataset.i18n === 'footer_text') {
-                  // Для футера используем специальную обработку
                   this._updateFooter();
               } else {
                   el.textContent = v;
@@ -441,6 +419,7 @@ class VideoTranscriber {
       model:    this.modelSelect.value,
       summaryLang: this.summaryLangSel.value,
       transcriptionLang: this.transcriptionLangSel.value,
+      simpleFormat: this.simpleFormatChk.checked, // ← ДОБАВЛЕНО
       lang:     this.currentLang,
       theme:    this.currentTheme,
     };
@@ -456,6 +435,7 @@ class VideoTranscriber {
       if (s.apiKey)           this.apiKeyInput.value  = s.apiKey;
       if (s.summaryLang)      this.summaryLangSel.value = s.summaryLang;
       if (s.transcriptionLang) this.transcriptionLangSel.value = s.transcriptionLang || 'auto';
+      if (s.simpleFormat !== undefined) this.simpleFormatChk.checked = s.simpleFormat; // ← ДОБАВЛЕНО
       if (s.lang)             this.currentLang = s.lang;
       if (s.theme)            this.currentTheme = s.theme;
       this._savedModel = s.model || '';
@@ -535,6 +515,7 @@ class VideoTranscriber {
     const url     = this.videoUrlInput.value.trim();
     const sumLang = this.summaryLangSel.value;
     const transLang = this.transcriptionLangSel.value;
+    const simpleFormat = this.simpleFormatChk.checked; // ← ДОБАВЛЕНО
 
     if (!url) { this._showError(this.t('error_invalid_url')); return; }
 
@@ -547,6 +528,7 @@ class VideoTranscriber {
       fd.append('url',              url);
       fd.append('summary_language', sumLang);
       fd.append('transcription_language', transLang);
+      fd.append('simple_format', simpleFormat ? 'true' : 'false'); // ← ДОБАВЛЕНО
 
       const apiKey  = this.apiKeyInput.value.trim();
       const baseUrl = this.modelBaseUrl.value.trim().replace(/\/$/, '');
@@ -601,11 +583,13 @@ class VideoTranscriber {
 
     const sumLang = this.summaryLangSel.value;
     const transLang = this.transcriptionLangSel.value;
+    const simpleFormat = this.simpleFormatChk.checked; // ← ДОБАВЛЕНО
     try {
       const fd = new FormData();
       fd.append('file', file, file.name);
       fd.append('summary_language', sumLang);
       fd.append('transcription_language', transLang);
+      fd.append('simple_format', simpleFormat ? 'true' : 'false'); // ← ДОБАВЛЕНО
 
       const apiKey  = this.apiKeyInput.value.trim();
       const baseUrl = this.modelBaseUrl.value.trim().replace(/\/$/, '');
@@ -703,13 +687,11 @@ class VideoTranscriber {
   _updateStage(pct, msg) {
     const m = (msg || '').toLowerCase();
 
-    // ── Путь с субтитрами (быстрый) ────────────────────────────
     if (m.includes('субтитры получены') || m.includes('subtitle found') || m.includes('获取成功') || m.includes('字幕获取')) {
       this.sp.stage = 'subtitle_found';
       this.sp.target = 55;
       this._setModeBadge('subtitle');
     }
-    // ── Без субтитров → загрузка аудио (медленный) ─────────────
     else if (m.includes('субтитры не найдены') || m.includes('no subtitle') || m.includes('未找到字幕') || m.includes('下载视频音频') || m.includes('下载音频')) {
       this.sp.stage = 'downloading';
       this.sp.target = 55;
@@ -729,12 +711,10 @@ class VideoTranscriber {
       this.sp.stage = 'preparing';
       this.sp.target = 40;
     }
-    // ── Обнаружение субтитров ────────────────────────────────────
     else if (m.includes('поиск субтитров') || m.includes('проверка наличия субтитров') || (m.includes('检测') && (m.includes('字幕') || m.includes('subtitle')))) {
       this.sp.stage = 'subtitle';
       this.sp.target = 40;
     }
-    // ── Другие этапы ─────────────────────────────────────────────
     else if (m.includes('анализ') || m.includes('pars') || m.includes('解析'))          { this.sp.stage = 'parsing';       this.sp.target = 60; }
     else if (m.includes('загрузка') || m.includes('download'))                     { this.sp.stage = 'downloading';   this.sp.target = 60; }
     else if (m.includes('транскрипция') || m.includes('transcrib') || m.includes('whisper') || m.includes('转录')) { this.sp.stage = 'transcribing';  this.sp.target = 80; }
@@ -840,8 +820,25 @@ class VideoTranscriber {
     return c;
   }
 
+  _escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
   _showResults(script, summary, videoTitle, translation, detectedLang, summaryLang) {
-    this.scriptContent.innerHTML  = script    ? marked.parse(script)      : '';
+    // Проверяем, был ли использован простой формат
+    const isSimpleFormat = script && !script.includes('# Video Transcription') && !script.includes('**Detected Language:**');
+    
+    if (isSimpleFormat) {
+        // Простой формат — сохраняем переносы строк
+        this.scriptContent.innerHTML = `<pre style="white-space: pre-wrap; font-family: inherit; margin: 0; padding: 0; background: transparent; border: none; color: inherit; font-size: 14px; line-height: 1.8;">${this._escapeHtml(script)}</pre>`;
+    } else {
+        // Markdown формат — используем marked
+        this.scriptContent.innerHTML = script ? marked.parse(script) : '';
+    }
+
     this.summaryContent.innerHTML = summary   ? marked.parse(summary)     : '';
 
     const d = this._normLangTab(detectedLang);

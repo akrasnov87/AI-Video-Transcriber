@@ -68,16 +68,17 @@ class Transcriber:
                 else:
                     raise Exception(f"Ошибка загрузки модели: {str(e)}")
     
-    async def transcribe(self, audio_path: str, language: Optional[str] = None) -> str:
+    async def transcribe(self, audio_path: str, language: Optional[str] = None, simple_format: bool = False) -> str:
         """
         Транскрипция аудиофайла
         
         Args:
             audio_path: Путь к аудиофайлу
             language: Указание языка (опционально, если не указан — автоматическое определение)
+            simple_format: Если True - выводить в простом формате [HH:MM:SS → HH:MM:SS]: текст
             
         Returns:
-            Текст транскрипции (в формате Markdown)
+            Текст транскрипции (в формате Markdown или простом формате)
         """
         try:
             # Проверка существования файла
@@ -117,29 +118,41 @@ class Transcriber:
             logger.info(f"Определенный язык: {detected_language}")
             logger.info(f"Вероятность определения языка: {info.language_probability:.2f}")
             
-            # Сборка результата транскрипции
-            transcript_lines = []
-            transcript_lines.append("# Video Transcription")
-            transcript_lines.append("")
-            transcript_lines.append(f"**Detected Language:** {detected_language}")
-            transcript_lines.append(f"**Language Probability:** {info.language_probability:.2f}")
-            transcript_lines.append("")
-            transcript_lines.append("## Transcription Content")
-            transcript_lines.append("")
-            
-            # Добавление временных меток и текста
-            for segment in segments:
-                start_time = self._format_time(segment.start)
-                end_time = self._format_time(segment.end)
-                text = segment.text.strip()
+            # ── Выбор формата вывода ──────────────────────────────────────
+            if simple_format:
+                # ── ПРОСТОЙ ФОРМАТ: [HH:MM:SS → HH:MM:SS]: текст ──────────
+                transcript_lines = []
+                for segment in segments:
+                    start_time = self._format_time_full(segment.start)
+                    end_time = self._format_time_full(segment.end)
+                    text = segment.text.strip()
+                    transcript_lines.append(f"[{start_time} → {end_time}]: {text}")
+                transcript_text = "\n".join(transcript_lines)
+                logger.info("Транскрипция завершена (простой формат)")
+            else:
+                # ── СТАНДАРТНЫЙ MARKDOWN ФОРМАТ ──────────────────────────
+                transcript_lines = []
+                transcript_lines.append("# Video Transcription")
+                transcript_lines.append("")
+                transcript_lines.append(f"**Detected Language:** {detected_language}")
+                transcript_lines.append(f"**Language Probability:** {info.language_probability:.2f}")
+                transcript_lines.append("")
+                transcript_lines.append("## Transcription Content")
+                transcript_lines.append("")
                 
-                transcript_lines.append(f"**[{start_time} - {end_time}]**")
-                transcript_lines.append("")
-                transcript_lines.append(text)
-                transcript_lines.append("")
-            
-            transcript_text = "\n".join(transcript_lines)
-            logger.info("Транскрипция завершена")
+                # Добавление временных меток и текста
+                for segment in segments:
+                    start_time = self._format_time(segment.start)
+                    end_time = self._format_time(segment.end)
+                    text = segment.text.strip()
+                    
+                    transcript_lines.append(f"**[{start_time} - {end_time}]**")
+                    transcript_lines.append("")
+                    transcript_lines.append(text)
+                    transcript_lines.append("")
+                
+                transcript_text = "\n".join(transcript_lines)
+                logger.info("Транскрипция завершена (Markdown формат)")
             
             return transcript_text
             
@@ -149,7 +162,7 @@ class Transcriber:
     
     def _format_time(self, seconds: float) -> str:
         """
-        Преобразование секунд в формат часы:минуты:секунды
+        Преобразование секунд в формат MM:SS или HH:MM:SS
         
         Args:
             seconds: Количество секунд
@@ -165,6 +178,22 @@ class Transcriber:
             return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
         else:
             return f"{minutes:02d}:{seconds:02d}"
+    
+    def _format_time_full(self, seconds: float) -> str:
+        """
+        Преобразование секунд в формат HH:MM:SS (всегда с часами)
+        Используется для простого формата транскрипции
+        
+        Args:
+            seconds: Количество секунд
+            
+        Returns:
+            Отформатированная строка времени в формате HH:MM:SS
+        """
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        seconds = int(seconds % 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
     
     def get_supported_languages(self) -> list:
         """

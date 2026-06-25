@@ -174,12 +174,14 @@ async def _run_post_extract_pipeline(
     api_key: str = "",
     model_base_url: str = "",
     model_id: str = "",
+    simple_format: bool = False,
 ) -> None:
     """Общий конвейер после получения raw_script: архивация, оптимизация, перевод, резюмирование, трансляция."""
     short_id = task_id.replace("-", "")[:6]
     safe_title = _sanitize_title_for_filename(video_title)
 
     try:
+        # Сохраняем сырую транскрипцию
         raw_md_filename = f"raw_{safe_title}_{short_id}.md"
         raw_md_path = TEMP_DIR / raw_md_filename
         with open(raw_md_path, "w", encoding="utf-8") as f:
@@ -197,7 +199,12 @@ async def _run_post_extract_pipeline(
     save_tasks(tasks)
     await broadcast_task_update(task_id, tasks[task_id])
 
-    script = await request_summarizer.optimize_transcript(raw_script)
+    # Если транскрипция в простом формате, пропускаем оптимизацию
+    if simple_format:
+        logger.info("Транскрипция в простом формате, оптимизация пропущена")
+        script = raw_script
+    else:
+        script = await request_summarizer.optimize_transcript(raw_script)
 
     script_with_title = f"# {video_title}\n\n{script}\n\nsource: {source_ref}\n"
 
@@ -293,6 +300,7 @@ async def _run_post_extract_pipeline(
         "safe_title": safe_title,
         "detected_language": detected_language,
         "summary_language": summary_language,
+        "simple_format": simple_format,  # Сохраняем информацию о формате
     }
 
     if translation_content and translation_path:
@@ -346,6 +354,7 @@ async def _enqueue_upload_job(
     file: UploadFile,
     summary_language: str,
     transcription_language: str,
+    simple_format: bool,
     api_key: str,
     model_base_url: str,
     model_id: str,
@@ -403,7 +412,8 @@ async def _enqueue_upload_job(
         "summary": None,
         "error": None,
         "url": source_label,
-        "transcription_language": transcription_language,  # Сохраняем язык транскрипции
+        "transcription_language": transcription_language,
+        "simple_format": simple_format,
     }
     save_tasks(tasks)
 
@@ -416,6 +426,7 @@ async def _enqueue_upload_job(
             ext,
             summary_language,
             transcription_language,
+            simple_format,
             api_key,
             model_base_url,
             model_id,
@@ -431,6 +442,7 @@ async def process_video(
     url: str = Form(default=""),
     summary_language: str = Form(default="zh"),
     transcription_language: str = Form(default="auto"),
+    simple_format: str = Form(default="false"),
     api_key: str = Form(default=""),
     model_base_url: str = Form(default=""),
     model_id: str = Form(default=""),
@@ -442,9 +454,11 @@ async def process_video(
     разрешающих только /api/process-video.
     """
     try:
+        simple_format_bool = simple_format.lower() == "true"
+        
         if file is not None and (file.filename or "").strip():
             return await _enqueue_upload_job(
-                file, summary_language, transcription_language, api_key, model_base_url, model_id
+                file, summary_language, transcription_language, simple_format_bool, api_key, model_base_url, model_id
             )
 
         stripped = (url or "").strip()
@@ -478,13 +492,14 @@ async def process_video(
             "summary": None,
             "error": None,
             "url": url,
-            "transcription_language": transcription_language,  # Сохраняем язык транскрипции
+            "transcription_language": transcription_language,
+            "simple_format": simple_format_bool,
         }
         save_tasks(tasks)
         
         # Создание и отслеживание асинхронной задачи
         task = asyncio.create_task(process_video_task(
-            task_id, url, summary_language, transcription_language, api_key, model_base_url, model_id
+            task_id, url, summary_language, transcription_language, simple_format_bool, api_key, model_base_url, model_id
         ))
         active_tasks[task_id] = task
         
@@ -501,6 +516,7 @@ async def process_video_task(
     url: str,
     summary_language: str,
     transcription_language: str = "auto",
+    simple_format: bool = False,
     api_key: str = "",
     model_base_url: str = "",
     model_id: str = "",
@@ -576,7 +592,8 @@ async def process_video_task(
             # Если выбран конкретный язык (не auto), передаем его в Whisper для ускорения
             trans_lang = None if transcription_language == "auto" else transcription_language
             logger.info(f"Язык транскрипции: {trans_lang if trans_lang else 'автоопределение'}")
-            raw_script = await transcriber.transcribe(audio_path, language=trans_lang)
+            logger.info(f"Формат транскрипции: {'простой' if simple_format else 'Markdown'}")
+            raw_script = await transcriber.transcribe(audio_path, language=trans_lang, simple_format=simple_format)
 
         await _run_post_extract_pipeline(
             task_id=task_id,
@@ -589,6 +606,7 @@ async def process_video_task(
             api_key=api_key,
             model_base_url=model_base_url,
             model_id=model_id,
+            simple_format=simple_format,
         )
 
     except Exception as e:
@@ -611,13 +629,15 @@ async def process_upload(
     file: UploadFile = File(...),
     summary_language: str = Form(default="zh"),
     transcription_language: str = Form(default="auto"),
+    simple_format: str = Form(default="false"),
     api_key: str = Form(default=""),
     model_base_url: str = Form(default=""),
     model_id: str = Form(default=""),
 ):
     """Отдельный эндпоинт для загрузки; логика аналогична /api/process-video с file."""
+    simple_format_bool = simple_format.lower() == "true"
     return await _enqueue_upload_job(
-        file, summary_language, transcription_language, api_key, model_base_url, model_id
+        file, summary_language, transcription_language, simple_format_bool, api_key, model_base_url, model_id
     )
 
 
@@ -629,6 +649,7 @@ async def process_upload_task(
     ext_lower: str,
     summary_language: str,
     transcription_language: str = "auto",
+    simple_format: bool = False,
     api_key: str = "",
     model_base_url: str = "",
     model_id: str = "",
@@ -688,7 +709,8 @@ async def process_upload_task(
             # Если выбран конкретный язык (не auto), передаем его в Whisper для ускорения
             trans_lang = None if transcription_language == "auto" else transcription_language
             logger.info(f"Язык транскрипции (загрузка): {trans_lang if trans_lang else 'автоопределение'}")
-            raw_script = await transcriber.transcribe(audio_path, language=trans_lang)
+            logger.info(f"Формат транскрипции: {'простой' if simple_format else 'Markdown'}")
+            raw_script = await transcriber.transcribe(audio_path, language=trans_lang, simple_format=simple_format)
 
         await _run_post_extract_pipeline(
             task_id=task_id,
@@ -701,6 +723,7 @@ async def process_upload_task(
             api_key=api_key,
             model_base_url=model_base_url,
             model_id=model_id,
+            simple_format=simple_format,
         )
 
     except Exception as e:
@@ -817,6 +840,64 @@ async def download_file(filename: str):
         raise HTTPException(status_code=500, detail=f"Ошибка скачивания: {str(e)}")
 
 
+@app.get("/api/download/simple/{task_id}")
+async def download_simple_transcript(task_id: str):
+    """
+    Скачивание транскрипции в простом формате (без Markdown)
+    """
+    try:
+        if task_id not in tasks:
+            raise HTTPException(status_code=404, detail="Задача не найдена")
+        
+        task = tasks[task_id]
+        if task.get("status") != "completed":
+            raise HTTPException(status_code=400, detail="Задача еще не завершена")
+        
+        # Получаем сырую транскрипцию из файла
+        raw_script_file = task.get("raw_script_file")
+        if not raw_script_file:
+            raise HTTPException(status_code=404, detail="Файл транскрипции не найден")
+        
+        raw_path = TEMP_DIR / raw_script_file
+        if not raw_path.exists():
+            raise HTTPException(status_code=404, detail="Файл транскрипции не найден")
+        
+        with open(raw_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Извлекаем только транскрипцию без метаданных
+        lines = content.split('\n')
+        transcript_lines = []
+        in_transcript = False
+        
+        for line in lines:
+            if line.startswith('## Transcription Content'):
+                in_transcript = True
+                continue
+            if in_transcript and line.strip():
+                # Убираем временные метки в формате **[HH:MM - HH:MM]**
+                if line.startswith('**[') and line.endswith(']**'):
+                    continue
+                transcript_lines.append(line)
+        
+        simple_text = '\n'.join(transcript_lines).strip()
+        
+        # Сохраняем как .txt
+        filename = f"transcript_simple_{task.get('safe_title', 'x')}_{task.get('short_id', 'x')}.txt"
+        
+        return FileResponse(
+            raw_path,
+            filename=filename,
+            media_type="text/plain"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка скачивания простой транскрипции: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка скачивания: {str(e)}")
+
+
 @app.delete("/api/task/{task_id}")
 async def delete_task(task_id: str):
     """
@@ -825,8 +906,7 @@ async def delete_task(task_id: str):
     if task_id not in tasks:
         raise HTTPException(status_code=404, detail="Задача не найдена")
     
-    # Если задача еще выполняется, отменяем её
-    if task_id in active_tasks:
+    # Если задача еще выполняется, отменяем её    if task_id in active_tasks:
         task = active_tasks[task_id]
         if not task.done():
             task.cancel()
@@ -859,10 +939,10 @@ async def get_active_tasks():
 async def system_info():
     """Информация о системе и доступных устройствах"""
     info = {
-        "version": get_version(),  # Добавляем версию
+        "version": get_version(),
         "whisper_device": transcriber.device,
         "whisper_compute_type": transcriber.compute_type,
-        "whisper_size": transcriber.model_size
+        "whisper_model": transcriber.model_size,
     }
     return info
 

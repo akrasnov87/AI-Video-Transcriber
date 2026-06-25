@@ -243,6 +243,32 @@
       pointer-events: none;
     }
 
+    /* ── Options row (Simple format checkbox) ──────────────── */
+    .options-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin: 10px 0 8px;
+      flex-wrap: wrap;
+    }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-muted);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
     /* ── Settings row (toggle + summary lang) ───────────── */
     .settings-row {
       display: flex;
@@ -571,9 +597,9 @@
       .settings-grid { grid-template-columns: 1fr; }
       .settings-grid .span2 { grid-column: 1; }
       .settings-body.open { max-height: 320px; }
+      .options-row { margin: 6px 0; }
     }
 
-    /* В блок <style> */
     .inline-lang-group {
       display: flex;
       gap: 16px;
@@ -597,6 +623,7 @@
         justify-content: space-between;
       }
     }
+
     .theme-btn {
       background: var(--surface-2);
       color: var(--text-muted);
@@ -614,40 +641,24 @@
       color: var(--accent-text); 
       border-color: var(--accent-dim); 
     }
+
     .nav-controls {
       display: flex;
       align-items: center;
       gap: 8px;
     }
-    /* ── Footer system info ────────────────────────────────── */
+
     .footer .system-info {
-        display: inline-block;
-        font-size: 11px;
-        color: var(--text-dim);
-        margin-left: 12px;
-        padding: 2px 10px;
-        background: var(--surface-2);
-        border-radius: 12px;
-        border: 1px solid var(--border);
-        font-family: 'SF Mono', 'Fira Code', monospace;
-        letter-spacing: 0.02em;
-    }
-
-    .footer .system-info .status-dot {
-        display: inline-block;
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        margin-right: 4px;
-    }
-
-    .footer .system-info .status-dot.gpu {
-        background: #6ab87a;
-        box-shadow: 0 0 4px rgba(106, 184, 122, 0.4);
-    }
-
-    .footer .system-info .status-dot.cpu {
-        background: var(--text-dim);
+      display: inline-block;
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-left: 12px;
+      padding: 2px 10px;
+      background: var(--surface-2);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      letter-spacing: 0.02em;
     }
   </style>
 </head>
@@ -655,9 +666,7 @@
 
 <!-- Navbar -->
 <nav class="navbar">
-  <a class="nav-logo" href="#" target="_blank" rel="noopener noreferrer">
-
-  </a>
+  <a class="nav-logo" href="#" target="_blank" rel="noopener noreferrer"></a>
   <div class="nav-controls">
     <button id="themeToggle" class="theme-btn" aria-label="Toggle theme">
       <i class="fas fa-moon"></i>
@@ -701,6 +710,14 @@
     </div>
   </form>
 
+  <!-- ЧЕКБОКС ПЕРЕМЕЩЕН СЮДА (после формы, перед upload) -->
+  <div class="options-row">
+    <label class="checkbox-label">
+      <input type="checkbox" id="simpleFormat" checked>
+      <span data-i18n="simple_format">Простой формат (с временными метками)</span>
+    </label>
+  </div>
+
   <div class="upload-section" id="uploadSection">
     <div class="upload-zone" id="uploadZone" tabindex="0" role="button" aria-label="Upload files">
       <p class="upload-or" data-i18n="upload_or">или перетащите файлы</p>
@@ -713,10 +730,9 @@
     <input type="file" id="fileInput" accept=".txt,.mp3,.mp4,.m4a,.wav,.webm,.mkv,.ogg,.flac" hidden>
   </div>
 
-  <!-- Settings row: Summary Language + Transcription Language + AI Settings toggle -->
+  <!-- Settings row -->
   <div class="settings-row">
     <div class="inline-lang-group">
-      <!-- Язык транскрипции -->
       <div class="inline-lang">
         <label class="inline-lang-label" for="transcriptionLanguage" data-i18n="transcription_language">Язык транскрипции</label>
         <select id="transcriptionLanguage" class="inline-lang-select">
@@ -736,7 +752,6 @@
         </select>
       </div>
 
-      <!-- Язык резюме -->
       <div class="inline-lang">
         <label class="inline-lang-label" for="summaryLanguage" data-i18n="summary_language">Язык резюме</label>
         <select id="summaryLanguage" class="inline-lang-select">
@@ -765,8 +780,6 @@
   <div class="settings-body" id="settingsBody">
     <div class="settings-card">
       <div class="settings-grid">
-
-        <!-- Base URL (full row) -->
         <div class="span2">
           <label class="s-label" data-i18n="model_base_url">API-адрес модели</label>
           <input
@@ -779,7 +792,6 @@
           >
         </div>
 
-        <!-- API Key -->
         <div>
           <label class="s-label" data-i18n="api_key">API Key</label>
           <div class="key-row">
@@ -799,28 +811,23 @@
           <div id="fetchStatus" class="fetch-status"></div>
         </div>
 
-        <!-- Model selector -->
         <div>
           <label class="s-label" data-i18n="model_select">Модель</label>
           <select id="modelSelect" class="s-select">
             <option value="" data-i18n="model_default">— использовать серверную по умолчанию —</option>
           </select>
         </div>
-
       </div>
     </div>
   </div>
 
   <!-- Result panel -->
   <div class="result-panel" id="resultPanel">
-
-    <!-- Empty state (default) -->
     <div class="empty-state" id="emptyState">
       <span class="es-icon">☕</span>
       <span class="es-text" data-i18n="empty_hint">Вставьте ссылку на видео или загрузите файл, и ИИ сделает всю работу.</span>
     </div>
 
-    <!-- Progress -->
     <div class="progress-panel" id="progressPanel">
       <div class="prog-top">
         <div class="prog-top-left">
@@ -835,7 +842,6 @@
       <div class="prog-msg" id="progressMessage" data-i18n="preparing">Подготовка…</div>
     </div>
 
-    <!-- Results -->
     <div class="results-panel" id="resultsPanel">
       <div class="res-top">
         <button class="btn-dl" id="downloadScript">
@@ -874,8 +880,7 @@
         <div class="md-content" id="translationContent"></div>
       </div>
     </div>
-
-  </div><!-- /result-panel -->
+  </div>
 
   <div class="footer">
     <p data-i18n="footer_text"></p>

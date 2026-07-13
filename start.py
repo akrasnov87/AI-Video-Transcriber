@@ -57,7 +57,6 @@ def check_ffmpeg():
 
 def setup_environment():
     """Настройка переменных окружения"""
-    # Настройка конфигурации OpenAI
     if not os.getenv("OPENAI_API_KEY"):
         print("⚠️  Предупреждение: переменная окружения OPENAI_API_KEY не установлена")
         print("Пожалуйста, установите переменную: export OPENAI_API_KEY=ваш_api_ключ_здесь")
@@ -66,10 +65,9 @@ def setup_environment():
     print("✅ OpenAI API Key установлен")
     
     if not os.getenv("OPENAI_BASE_URL"):
-        os.environ["OPENAI_BASE_URL"] = "https://oneapi.basevec.com/v1"
+        os.environ["OPENAI_BASE_URL"] = "https://api.openai.com/v1"
         print("✅ OpenAI Base URL установлен")
     
-    # Установка других настроек по умолчанию
     if not os.getenv("WHISPER_MODEL_SIZE"):
         os.environ["WHISPER_MODEL_SIZE"] = "base"
     
@@ -87,7 +85,6 @@ def main():
     else:
         print("ℹ️  Файл .env не найден, используются системные переменные")
 
-    # Проверка использования производственного режима (отключение горячей перезагрузки)
     production_mode = "--prod" in sys.argv or os.getenv("PRODUCTION_MODE") == "true"
     
     print("🚀 Проверка запуска AI Видео Транскрибатора")
@@ -97,21 +94,17 @@ def main():
         print("🔧 Режим разработки - горячая перезагрузка включена")
     print("=" * 50)
     
-    # Проверка зависимостей
     if not check_dependencies():
         sys.exit(1)
     
-    # Проверка FFmpeg
     if not check_ffmpeg():
         print("⚠️  FFmpeg не установлен, это может повлиять на обработку некоторых видеоформатов")
     
-    # Настройка окружения
     setup_environment()
     
     print("\n🎉 Проверка запуска завершена!")
     print("=" * 50)
     
-    # Запуск сервера
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", 8000))
     
@@ -121,21 +114,52 @@ def main():
     print("=" * 50)
     
     try:
-        # Переход в директорию backend и запуск сервиса
-        backend_dir = Path(__file__).parent / "backend"
-        os.chdir(backend_dir)
+        root_dir = Path(__file__).parent
         
+        # ═══════════════════════════════════════════════════════════
+        # ✅ ФИКС: Проверяем оба возможных расположения main.py
+        # ═══════════════════════════════════════════════════════════
+        module_name = None
+        
+        # Проверяем backend/main.py (основной вариант)
+        if (root_dir / "backend" / "main.py").exists():
+            module_name = "backend.main"
+            print(f"📄 Найден backend/main.py")
+        # Проверяем main.py в корне (запасной вариант)
+        elif (root_dir / "main.py").exists():
+            module_name = "main"
+            print(f"📄 Найден main.py в корне")
+        else:
+            print("❌ Файл main.py не найден!")
+            print(f"   Проверены пути:")
+            print(f"   - {root_dir / 'backend' / 'main.py'}")
+            print(f"   - {root_dir / 'main.py'}")
+            sys.exit(1)
+        
+        # Формируем команду
         cmd = [
-            sys.executable, "-m", "uvicorn", "main:app",
+            sys.executable, "-m", "uvicorn", f"{module_name}:app",
             "--host", host,
             "--port", str(port)
         ]
         
-        # Включение горячей перезагрузки только в режиме разработки
         if not production_mode:
             cmd.append("--reload")
         
-        subprocess.run(cmd)
+        # ═══════════════════════════════════════════════════════════
+        # ✅ ФИКС: PYTHONPATH для импорта модулей
+        # ═══════════════════════════════════════════════════════════
+        env = os.environ.copy()
+        python_paths = [str(root_dir)]
+        if (root_dir / "backend").exists():
+            python_paths.append(str(root_dir / "backend"))
+        
+        env["PYTHONPATH"] = ":".join(python_paths)
+        
+        print(f"📂 PYTHONPATH: {env['PYTHONPATH']}")
+        print(f"🚀 Запуск: {' '.join(cmd)}")
+        
+        subprocess.run(cmd, env=env)
         
     except KeyboardInterrupt:
         print("\n\n👋 Сервис остановлен")

@@ -1,6 +1,6 @@
 services:
   transcriber:
-    image: akrasnov87/ai-video-transcriber:1.0.0
+    image: akrasnov87/ai-video-transcriber:1.1.0
     ports:
       - "8000:8000"
     environment:

@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import os
 import asyncio
@@ -12,14 +12,23 @@ import uuid
 import json
 import re
 import openai
-import time
+import subprocess
+import tempfile
+import sys
+import threading
+import gc
+
+# ═══════════════════════════════════════════════════════════════
+# ✅ УБРАЛИ: import torch
+# ═══════════════════════════════════════════════════════════════
 
 from video_processor import VideoProcessor
-from transcriber import Transcriber
 from summarizer import Summarizer
 from translator import Translator
 
-# Настройка логирования
+# ============================================================
+# НАСТРОЙКА ЛОГИРОВАНИЯ
+# ============================================================
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
@@ -27,32 +36,46 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ── ДОБАВЛЯЕМ ОТДЕЛЬНЫЙ ЛОГГЕР ДЛЯ ПРОГРЕССА ──
 progress_logger = logging.getLogger('progress')
 progress_logger.setLevel(logging.INFO)
-# Добавляем хендлер с более простым форматом для прогресса
 if not progress_logger.handlers:
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter('%(asctime)s | 🔄 %(message)s', datefmt='%H:%M:%S'))
     progress_logger.addHandler(handler)
 
-# Получение версии из файла
+# ============================================================
+# ПУТИ И КОНФИГУРАЦИЯ
+# ============================================================
 PROJECT_ROOT = Path(__file__).parent.parent
-VERSION_FILE = PROJECT_ROOT / "version"
+TEMP_DIR = PROJECT_ROOT / "temp"
+TEMP_DIR.mkdir(exist_ok=True)
 
+VERSION_FILE = PROJECT_ROOT / "version"
 def get_version() -> str:
-    """Получение версии из файла"""
     try:
         if VERSION_FILE.exists():
             with open(VERSION_FILE, 'r', encoding='utf-8') as f:
                 return f.read().strip()
-    except Exception:
+    except:
         pass
-    return "1.0.0"  # Версия по умолчанию
+    return "1.0.0"
 
+# ============================================================
+# ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ
+# ============================================================
+WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")
+WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
+WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
+UPLOAD_MAX_MB = int(os.getenv("UPLOAD_MAX_MB", "2000"))
+UPLOAD_ALLOWED_EXT = frozenset({".txt", ".mp3", ".mp4", ".m4a", ".wav", ".webm", ".mkv", ".ogg", ".flac"})
+
+logger.info(f"🚀 Whisper: model={WHISPER_MODEL_SIZE}, device={WHISPER_DEVICE}, compute={WHISPER_COMPUTE_TYPE}")
+
+# ============================================================
+# ИНИЦИАЛИЗАЦИЯ
+# ============================================================
 app = FastAPI(title="AI Видео Транскрибатор", version="1.0.0")
 
-# Настройка CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -61,43 +84,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Получение корневой директории проекта
-PROJECT_ROOT = Path(__file__).parent.parent
-
-# Подключение статических файлов
 app.mount("/static", StaticFiles(directory=str(PROJECT_ROOT / "static")), name="static")
 
-# Создание директории для временных файлов
-TEMP_DIR = PROJECT_ROOT / "temp"
-TEMP_DIR.mkdir(exist_ok=True)
-
-# ── ИНИЦИАЛИЗАЦИЯ ОБРАБОТЧИКОВ С ПАРАМЕТРАМИ ИЗ ENV ──
-
-# Чтение настроек Whisper из переменных окружения
-WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")
-WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
-WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
-
-logger.info(f"🚀 Инициализация Whisper: model={WHISPER_MODEL_SIZE}, device={WHISPER_DEVICE}, compute_type={WHISPER_COMPUTE_TYPE}")
-
-# Создаем экземпляры с параметрами из ENV
 video_processor = VideoProcessor()
-transcriber = Transcriber(
-    model_size=WHISPER_MODEL_SIZE,
-    device=WHISPER_DEVICE,
-    compute_type=WHISPER_COMPUTE_TYPE
-)
 summarizer = Summarizer()
 translator = Translator()
 
-# Хранение состояния задач - с сохранением в файл
-import threading
-
+# ============================================================
+# ХРАНЕНИЕ СОСТОЯНИЯ ЗАДАЧ
+# ============================================================
 TASKS_FILE = TEMP_DIR / "tasks.json"
 tasks_lock = threading.Lock()
 
 def load_tasks():
-    """Загрузка состояния задач"""
     try:
         if TASKS_FILE.exists():
             with open(TASKS_FILE, 'r', encoding='utf-8') as f:
@@ -107,7 +106,6 @@ def load_tasks():
     return {}
 
 def save_tasks(tasks_data):
-    """Сохранение состояния задач"""
     try:
         with tasks_lock:
             with open(TASKS_FILE, 'w', encoding='utf-8') as f:
@@ -115,34 +113,26 @@ def save_tasks(tasks_data):
     except Exception as e:
         logger.error(f"Ошибка сохранения состояния задач: {e}")
 
-async def broadcast_task_update(task_id: str, task_data: dict):
-    """Отправка обновления состояния задачи всем подключенным SSE клиентам"""
-    logger.debug(f"Трансляция обновления задачи: {task_id}, статус: {task_data.get('status')}, прогресс: {task_data.get('progress', 0)}%")
-    if task_id in sse_connections:
-        connections_to_remove = []
-        for queue in sse_connections[task_id]:
-            try:
-                await queue.put(json.dumps(task_data, ensure_ascii=False))
-            except Exception as e:
-                logger.warning(f"Ошибка отправки сообщения в очередь: {e}")
-                connections_to_remove.append(queue)
-        
-        for queue in connections_to_remove:
-            sse_connections[task_id].remove(queue)
-        
-        if not sse_connections[task_id]:
-            del sse_connections[task_id]
-
-# Загрузка состояния задач при запуске
 tasks = load_tasks()
 processing_urls = set()
 active_tasks = {}
 sse_connections = {}
 
-# Локальная загрузка: разрешенные типы и максимальный размер (МБ)
-UPLOAD_ALLOWED_EXT = frozenset({".txt", ".mp3", ".mp4", ".m4a", ".wav", ".webm", ".mkv", ".ogg", ".flac"})
-UPLOAD_MAX_MB = int(os.getenv("UPLOAD_MAX_MB", "2000"))
-
+# ============================================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ============================================================
+async def broadcast_task_update(task_id: str, task_data: dict):
+    if task_id in sse_connections:
+        connections_to_remove = []
+        for queue in sse_connections[task_id]:
+            try:
+                await queue.put(json.dumps(task_data, ensure_ascii=False))
+            except:
+                connections_to_remove.append(queue)
+        for queue in connections_to_remove:
+            sse_connections[task_id].remove(queue)
+        if not sse_connections[task_id]:
+            del sse_connections[task_id]
 
 def _sanitize_title_for_filename(title: str) -> str:
     if not title:
@@ -150,7 +140,6 @@ def _sanitize_title_for_filename(title: str) -> str:
     safe = re.sub(r"[^\w\-\s]", "", title)
     safe = re.sub(r"\s+", "_", safe).strip("._-")
     return safe[:80] or "untitled"
-
 
 def _txt_to_raw_transcript_markdown(body: str) -> str:
     text = body.strip() if body.strip() else "(empty)"
@@ -165,7 +154,98 @@ def _txt_to_raw_transcript_markdown(body: str) -> str:
         text,
     ])
 
+# ============================================================
+# ГЛАВНАЯ ФУНКЦИЯ: ЗАПУСК ВОРКЕРА
+# ============================================================
+async def _run_worker_transcription(
+    audio_path: str,
+    language: Optional[str] = None,
+    simple_format: bool = False
+) -> str:
+    """Запуск транскрибации в отдельном процессе (worker.py)."""
+    
+    with tempfile.NamedTemporaryFile(
+        mode='w+',
+        suffix='.txt',
+        delete=False,
+        encoding='utf-8'
+    ) as tmp:
+        result_file = tmp.name
+    
+    try:
+        worker_path = PROJECT_ROOT / "backend" / "worker.py"
+        if not worker_path.exists():
+            logger.warning(f"⚠️ worker.py не найден, используем прямой вызов Transcriber")
+            from transcriber import Transcriber
+            transcriber = Transcriber(
+                model_size=WHISPER_MODEL_SIZE,
+                device=WHISPER_DEVICE,
+                compute_type=WHISPER_COMPUTE_TYPE
+            )
+            result = await transcriber.transcribe(
+                audio_path=audio_path,
+                language=language,
+                simple_format=simple_format
+            )
+            del transcriber
+            gc.collect()
+            # ═══════════════════════════════════════════════════════════
+            # ✅ УБРАЛИ: try/except для torch
+            # ═══════════════════════════════════════════════════════════
+            return result
+        
+        cmd = [
+            "python3",
+            str(worker_path),
+            audio_path,
+            result_file,
+            "--model-size", WHISPER_MODEL_SIZE,
+            "--device", WHISPER_DEVICE,
+            "--compute-type", WHISPER_COMPUTE_TYPE
+        ]
+        
+        if language and language != "auto":
+            cmd.extend(["--language", language])
+        if simple_format:
+            cmd.append("--simple-format")
+        
+        logger.info(f"🚀 Запуск воркера: {' '.join(cmd)}")
+        
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        stdout, stderr = await process.communicate()
+        
+        if process.returncode != 0:
+            error_msg = stderr.decode('utf-8', errors='ignore')
+            logger.error(f"❌ Ошибка воркера (код {process.returncode}): {error_msg}")
+            raise Exception(f"Ошибка транскрибации: {error_msg[:200]}")
+        
+        with open(result_file, 'r', encoding='utf-8') as f:
+            result = f.read()
+        
+        if not result or result.strip() == "":
+            raise Exception("Результат транскрибации пуст")
+        
+        logger.info("✅ Транскрибация в воркере успешно завершена")
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка в _run_worker_transcription: {str(e)}")
+        raise
+    finally:
+        try:
+            if os.path.exists(result_file):
+                os.unlink(result_file)
+        except:
+            pass
 
+# ============================================================
+# ОСНОВНОЙ КОНВЕЙЕР ОБРАБОТКИ
+# ============================================================
 async def _run_post_extract_pipeline(
     task_id: str,
     raw_script: str,
@@ -179,7 +259,6 @@ async def _run_post_extract_pipeline(
     model_id: str = "",
     simple_format: bool = False,
 ) -> None:
-    """Общий конвейер после получения raw_script."""
     short_id = task_id.replace("-", "")[:6]
     safe_title = _sanitize_title_for_filename(video_title)
 
@@ -201,17 +280,13 @@ async def _run_post_extract_pipeline(
     await broadcast_task_update(task_id, tasks[task_id])
 
     if simple_format:
-        logger.info(f"📝 Задача {short_id}: Транскрипция в простом формате, оптимизация пропущена")
         script = raw_script
     else:
         script = await request_summarizer.optimize_transcript(raw_script)
 
     script_with_title = f"# {video_title}\n\n{script}\n\nsource: {source_ref}\n"
 
-    detected_language = transcriber.get_detected_language(raw_script)
-    detected_language = (detected_language or "").strip()
-    if not detected_language:
-        detected_language = translator.infer_language_code(raw_script)
+    detected_language = translator.infer_language_code(raw_script)
     detected_language = translator.normalize_lang_code(detected_language) or detected_language
 
     logger.info(f"📝 Задача {short_id}: Определенный язык: {detected_language}, язык резюме: {summary_language}")
@@ -250,8 +325,6 @@ async def _run_post_extract_pipeline(
         async with aiofiles.open(translation_path, "w", encoding="utf-8") as f:
             await f.write(translation_with_title)
         progress_logger.info(f"🌍 Задача {short_id}: Перевод завершен")
-    else:
-        logger.info(f"📝 Задача {short_id}: Перевод не требуется")
 
     progress_logger.info(f"📊 Задача {short_id}: Создание резюме (80%)...")
     tasks[task_id].update({"progress": 80, "message": "Создание резюме..."})
@@ -306,7 +379,6 @@ async def _run_post_extract_pipeline(
     tasks[task_id].update(task_result)
     save_tasks(tasks)
     progress_logger.info(f"✅ Задача {short_id}: Обработка завершена!")
-    logger.info(f"📝 Задача {short_id}: Финальное состояние отправлено")
     await broadcast_task_update(task_id, tasks[task_id])
 
     if dedup_url:
@@ -314,7 +386,9 @@ async def _run_post_extract_pipeline(
     if task_id in active_tasks:
         del active_tasks[task_id]
 
-
+# ============================================================
+# ЭНДПОИНТЫ API
+# ============================================================
 @app.get("/")
 async def read_root():
     return FileResponse(str(PROJECT_ROOT / "static" / "index.html"))
@@ -339,103 +413,6 @@ async def list_models(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-
-async def _enqueue_upload_job(
-    file: UploadFile,
-    summary_language: str,
-    transcription_language: str,
-    simple_format: bool,
-    api_key: str,
-    model_base_url: str,
-    model_id: str,
-) -> dict:
-    """Сохранение загруженного файла и постановка в очередь."""
-    raw_name = file.filename or "upload.bin"
-    if ".." in raw_name or "/" in raw_name or "\\" in raw_name:
-        raise HTTPException(status_code=400, detail="Недопустимое имя файла")
-    safe_name = os.path.basename(raw_name)
-    ext = Path(safe_name).suffix.lower()
-    if ext not in UPLOAD_ALLOWED_EXT:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Неподдерживаемый тип файла: {ext or '(none)'}",
-        )
-
-    max_bytes = UPLOAD_MAX_MB * 1024 * 1024
-    task_id = str(uuid.uuid4())
-    unique_stem = task_id.replace("-", "")[:12]
-    dest = TEMP_DIR / f"upload_{unique_stem}{ext}"
-
-    total = 0
-    file_size_mb = 0
-    progress_logger.info(f"📤 Загрузка файла: {safe_name} ({file.size / (1024*1024):.1f} МБ)")
-
-    with open(dest, "wb") as out_f:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            total += len(chunk)
-            file_size_mb = total / (1024 * 1024)
-            # Показываем прогресс загрузки каждые 10%
-            if total % (5 * 1024 * 1024) < 1024 * 1024 or total == len(chunk):
-                progress_logger.info(f"📤 Загрузка: {file_size_mb:.1f} МБ / {file.size / (1024*1024):.1f} МБ ({total/file.size*100:.0f}%)")
-            if total > max_bytes:
-                try:
-                    dest.unlink(missing_ok=True)
-                except Exception:
-                    pass
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"Файл превышает лимит {UPLOAD_MAX_MB} МБ",
-                )
-            out_f.write(chunk)
-
-    if total == 0:
-        try:
-            dest.unlink(missing_ok=True)
-        except Exception:
-            pass
-        raise HTTPException(status_code=400, detail="Пустой файл")
-
-    video_title = _sanitize_title_for_filename(Path(safe_name).stem) or "upload"
-    source_label = f"upload:{safe_name}"
-
-    logger.info(f"📁 Файл сохранен: {dest}, размер: {file_size_mb:.1f} МБ")
-
-    tasks[task_id] = {
-        "status": "processing",
-        "progress": 0,
-        "message": "Начало обработки загруженного файла...",
-        "script": None,
-        "summary": None,
-        "error": None,
-        "url": source_label,
-        "transcription_language": transcription_language,
-        "simple_format": simple_format,
-    }
-    save_tasks(tasks)
-
-    bg = asyncio.create_task(
-        process_upload_task(
-            task_id,
-            dest,
-            safe_name,
-            video_title,
-            ext,
-            summary_language,
-            transcription_language,
-            simple_format,
-            api_key,
-            model_base_url,
-            model_id,
-        )
-    )
-    active_tasks[task_id] = bg
-
-    return {"task_id": task_id, "message": "Задача создана, обработка выполняется..."}
-
-
 @app.post("/api/process-video")
 async def process_video(
     url: str = Form(default=""),
@@ -451,9 +428,71 @@ async def process_video(
         simple_format_bool = simple_format.lower() == "true"
         
         if file is not None and (file.filename or "").strip():
-            return await _enqueue_upload_job(
-                file, summary_language, transcription_language, simple_format_bool, api_key, model_base_url, model_id
+            raw_name = file.filename or "upload.bin"
+            if ".." in raw_name or "/" in raw_name or "\\" in raw_name:
+                raise HTTPException(status_code=400, detail="Недопустимое имя файла")
+            safe_name = os.path.basename(raw_name)
+            ext = Path(safe_name).suffix.lower()
+            if ext not in UPLOAD_ALLOWED_EXT:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Неподдерживаемый тип файла: {ext or '(none)'}",
+                )
+
+            max_bytes = UPLOAD_MAX_MB * 1024 * 1024
+            task_id = str(uuid.uuid4())
+            unique_stem = task_id.replace("-", "")[:12]
+            dest = TEMP_DIR / f"upload_{unique_stem}{ext}"
+
+            total = 0
+            with open(dest, "wb") as out_f:
+                while True:
+                    chunk = await file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > max_bytes:
+                        try:
+                            dest.unlink(missing_ok=True)
+                        except:
+                            pass
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"Файл превышает лимит {UPLOAD_MAX_MB} МБ",
+                        )
+                    out_f.write(chunk)
+
+            if total == 0:
+                try:
+                    dest.unlink(missing_ok=True)
+                except:
+                    pass
+                raise HTTPException(status_code=400, detail="Пустой файл")
+
+            video_title = _sanitize_title_for_filename(Path(safe_name).stem) or "upload"
+            
+            tasks[task_id] = {
+                "status": "processing",
+                "progress": 0,
+                "message": "Начало обработки загруженного файла...",
+                "script": None,
+                "summary": None,
+                "error": None,
+                "url": f"upload:{safe_name}",
+                "transcription_language": transcription_language,
+                "simple_format": simple_format_bool,
+            }
+            save_tasks(tasks)
+
+            task = asyncio.create_task(
+                process_upload_task(
+                    task_id, dest, safe_name, video_title, ext,
+                    summary_language, transcription_language,
+                    simple_format_bool, api_key, model_base_url, model_id
+                )
             )
+            active_tasks[task_id] = task
+            return {"task_id": task_id, "message": "Задача создана, обработка выполняется..."}
 
         stripped = (url or "").strip()
         if not stripped:
@@ -490,9 +529,12 @@ async def process_video(
         }
         save_tasks(tasks)
         
-        task = asyncio.create_task(process_video_task(
-            task_id, url, summary_language, transcription_language, simple_format_bool, api_key, model_base_url, model_id
-        ))
+        task = asyncio.create_task(
+            process_video_task(
+                task_id, url, summary_language, transcription_language,
+                simple_format_bool, api_key, model_base_url, model_id
+            )
+        )
         active_tasks[task_id] = task
         
         return {"task_id": task_id, "message": "Задача создана, обработка выполняется..."}
@@ -541,7 +583,6 @@ async def process_video_task(
         if subtitle_text:
             video_title = sub_title
             raw_script = subtitle_text
-            transcriber.last_detected_language = sub_lang
 
             progress_logger.info(f"✅ Задача {short_id}: Субтитры получены ({sub_lang}) (40%)")
             tasks[task_id].update({
@@ -584,7 +625,11 @@ async def process_video_task(
             logger.info(f"🎙️ Задача {short_id}: Язык транскрипции: {trans_lang if trans_lang else 'автоопределение'}")
             logger.info(f"📄 Задача {short_id}: Формат транскрипции: {'простой' if simple_format else 'Markdown'}")
             
-            raw_script = await transcriber.transcribe(audio_path, language=trans_lang, simple_format=simple_format)
+            raw_script = await _run_worker_transcription(
+                audio_path, 
+                language=trans_lang, 
+                simple_format=simple_format
+            )
             progress_logger.info(f"✅ Задача {short_id}: Транскрипция завершена")
 
         await _run_post_extract_pipeline(
@@ -627,10 +672,16 @@ async def process_upload(
     model_id: str = Form(default=""),
 ):
     simple_format_bool = simple_format.lower() == "true"
-    return await _enqueue_upload_job(
-        file, summary_language, transcription_language, simple_format_bool, api_key, model_base_url, model_id
+    return await process_video(
+        url="",
+        summary_language=summary_language,
+        transcription_language=transcription_language,
+        simple_format=str(simple_format_bool).lower(),
+        api_key=api_key,
+        model_base_url=model_base_url,
+        model_id=model_id,
+        file=file
     )
-
 
 async def process_upload_task(
     task_id: str,
@@ -671,7 +722,6 @@ async def process_upload_task(
             body = saved_path.read_text(encoding="utf-8", errors="replace")
             if not body.strip():
                 raise Exception("Текстовый файл пуст")
-            transcriber.last_detected_language = None
             raw_script = _txt_to_raw_transcript_markdown(body)
             progress_logger.info(f"✅ Задача {short_id}: Текстовый файл прочитан ({len(body)} символов)")
         else:
@@ -705,7 +755,11 @@ async def process_upload_task(
             logger.info(f"🎙️ Задача {short_id}: Язык транскрипции: {trans_lang if trans_lang else 'автоопределение'}")
             logger.info(f"📄 Задача {short_id}: Формат транскрипции: {'простой' if simple_format else 'Markdown'}")
             
-            raw_script = await transcriber.transcribe(audio_path, language=trans_lang, simple_format=simple_format)
+            raw_script = await _run_worker_transcription(
+                audio_path, 
+                language=trans_lang, 
+                simple_format=simple_format
+            )
             progress_logger.info(f"✅ Задача {short_id}: Транскрипция завершена")
 
         await _run_post_extract_pipeline(
@@ -733,7 +787,6 @@ async def process_upload_task(
         })
         save_tasks(tasks)
         await broadcast_task_update(task_id, tasks[task_id])
-
 
 @app.get("/api/task-status/{task_id}")
 async def get_task_status(task_id: str):
@@ -815,7 +868,6 @@ async def download_file(filename: str):
         logger.error(f"Ошибка скачивания файла: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка скачивания: {str(e)}")
 
-
 @app.get("/api/download/simple/{task_id}")
 async def download_simple_transcript(task_id: str):
     try:
@@ -846,7 +898,6 @@ async def download_simple_transcript(task_id: str):
         logger.error(f"Ошибка скачивания простой транскрипции: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка скачивания: {str(e)}")
 
-
 @app.delete("/api/task/{task_id}")
 async def delete_task(task_id: str):
     if task_id not in tasks:
@@ -876,25 +927,49 @@ async def get_active_tasks():
         "task_ids": list(active_tasks.keys())
     }
 
+@app.get("/api/worker-status")
+async def worker_status():
+    """Проверка состояния воркера и памяти GPU"""
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "worker.py"],
+            capture_output=True,
+            text=True
+        )
+        worker_pids = result.stdout.strip().split() if result.stdout else []
+        
+        # ═══════════════════════════════════════════════════════════
+        # ✅ УБРАЛИ: информацию о CUDA
+        # ═══════════════════════════════════════════════════════════
+        
+        return {
+            "active_workers": len(worker_pids),
+            "worker_pids": worker_pids,
+            "cuda_memory": {}  # Пустой объект вместо информации о CUDA
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/api/system-info")
 async def system_info():
     info = {
         "upload_max_mb": UPLOAD_MAX_MB,
         "version": get_version(),
-        "whisper_device": transcriber.device,
-        "whisper_compute_type": transcriber.compute_type,
-        "whisper_model": transcriber.model_size,
+        "whisper_device": WHISPER_DEVICE,
+        "whisper_compute_type": WHISPER_COMPUTE_TYPE,
+        "whisper_model": WHISPER_MODEL_SIZE,
+        "worker_mode": True,
     }
     return info
 
 @app.get("/api/config")
 async def get_config():
-    """Получение конфигурации сервера"""
     return {
         "upload_max_mb": UPLOAD_MAX_MB,
         "whisper_model": WHISPER_MODEL_SIZE,
         "whisper_device": WHISPER_DEVICE,
         "whisper_compute_type": WHISPER_COMPUTE_TYPE,
+        "worker_mode": True,
     }
 
 @app.get("/api/version")

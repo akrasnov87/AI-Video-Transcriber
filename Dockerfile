@@ -1,7 +1,7 @@
 # AI Видео Транскрибатор Docker образ с поддержкой GPU
 FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
-# Устанавливаем Python 3.10 (уже есть в Ubuntu 22.04) и зависимости
+# Устанавливаем Python 3.10 и зависимости
 RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get update && apt-get install -y --no-install-recommends \
     python3.10 \
@@ -27,19 +27,32 @@ RUN python3 -m pip install --upgrade pip setuptools wheel \
 # Копируем проект
 COPY . .
 
-# Создаем директорию для временных файлов и кеша
+# Создаем директории для временных файлов и кеша
 RUN mkdir -p temp /app/cache/huggingface
+
+# ═══════════════════════════════════════════════════════════════
+# ✅ ФИКС: Создаем __init__.py в backend, если его нет
+# ═══════════════════════════════════════════════════════════════
+RUN touch /app/backend/__init__.py
+
+# ═══════════════════════════════════════════════════════════════
+# ✅ ФИКС: Добавляем PYTHONPATH
+# ═══════════════════════════════════════════════════════════════
+ENV PYTHONPATH=/app:/app/backend
 
 # Устанавливаем переменные окружения
 ENV HOST=0.0.0.0
 ENV PORT=8000
 ENV WHISPER_MODEL_SIZE=base
-ENV UPLOAD_MAX_MB=200
+ENV WHISPER_DEVICE=cuda
+ENV WHISPER_COMPUTE_TYPE=float16
+ENV UPLOAD_MAX_MB=2000
 ENV HF_HOME=/app/cache/huggingface
 ENV TRANSFORMERS_CACHE=/app/cache/huggingface/hub
 ENV PYTORCH_TRANSFORMERS_CACHE=/app/cache/huggingface/hub
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
+ENV PYTHONUNBUFFERED=1
 
 # Открываем порт
 EXPOSE 8000

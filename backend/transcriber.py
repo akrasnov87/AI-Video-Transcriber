@@ -2,6 +2,7 @@ import os
 from faster_whisper import WhisperModel
 import logging
 from typing import Optional
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,10 @@ class Transcriber:
                 else:
                     raise Exception(f"Ошибка загрузки модели: {str(e)}")
     
-    async def transcribe(self, audio_path: str, language: Optional[str] = None, simple_format: bool = False) -> str:
+    # ═══════════════════════════════════════════════════════════
+    # ✅ СИНХРОННЫЙ МЕТОД (без async)
+    # ═══════════════════════════════════════════════════════════
+    def transcribe(self, audio_path: str, language: Optional[str] = None, simple_format: bool = False) -> str:
         try:
             if not os.path.exists(audio_path):
                 raise Exception(f"Аудиофайл не найден: {audio_path}")
@@ -73,36 +77,32 @@ class Transcriber:
             file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
             progress_logger.info(f"🎙️ Начало транскрипции: {os.path.basename(audio_path)} ({file_size_mb:.1f} МБ)")
             
-            import asyncio
-            def _do_transcribe():
-                return self.model.transcribe(
-                    audio_path,
-                    language=language,
-                    beam_size=5,
-                    best_of=5,
-                    temperature=[0.0, 0.2, 0.4],
-                    vad_filter=True,
-                    vad_parameters={
-                        "min_silence_duration_ms": 900,
-                        "speech_pad_ms": 300
-                    },
-                    no_speech_threshold=0.7,
-                    compression_ratio_threshold=2.3,
-                    log_prob_threshold=-1.0,
-                    condition_on_previous_text=False
-                )
-            
             # Засекаем время
-            start_time = __import__('time').time()
+            start_time = time.time()
             
-            segments, info = await asyncio.to_thread(_do_transcribe)
+            segments, info = self.model.transcribe(
+                audio_path,
+                language=language,
+                beam_size=5,
+                best_of=5,
+                temperature=[0.0, 0.2, 0.4],
+                vad_filter=True,
+                vad_parameters={
+                    "min_silence_duration_ms": 900,
+                    "speech_pad_ms": 300
+                },
+                no_speech_threshold=0.7,
+                compression_ratio_threshold=2.3,
+                log_prob_threshold=-1.0,
+                condition_on_previous_text=False
+            )
             
-            elapsed = __import__('time').time() - start_time
+            elapsed = time.time() - start_time
             
             detected_language = info.language
             self.last_detected_language = detected_language
             
-            # Собираем сегменты для подсчета
+            # Собираем сегменты
             segment_count = 0
             transcript_lines = []
             
@@ -113,7 +113,6 @@ class Transcriber:
                     text = segment.text.strip()
                     transcript_lines.append(f"[{start_time_seg} → {end_time_seg}]: {text}")
                     segment_count += 1
-                    # Показываем прогресс каждые 10 сегментов
                     if segment_count % 10 == 0:
                         progress_logger.info(f"🎙️ Транскрипция: {segment_count} сегментов обработано...")
                 transcript_text = "\n".join(transcript_lines)

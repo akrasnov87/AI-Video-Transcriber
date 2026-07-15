@@ -4,12 +4,24 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # Обязательно: API-ключ OpenAI (укажите в файле .env или измените здесь напрямую)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-your_openai_api_key_here}
+      # Опционально: пользовательский эндпоинт OpenAI
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      - WHISPER_MODEL_SIZE=large
-      - WHISPER_DEVICE=cuda
-      - WHISPER_COMPUTE_TYPE=float16
-      - UPLOAD_MAX_MB=2000
+      # ═══════════════════════════════════════════════════
+      # КЛЮЧ ДОСТУПА ДЛЯ АУТЕНТИФИКАЦИИ
+      # Если не установлен, генерируется автоматически
+      # ═══════════════════════════════════════════════════
+      - ACCESS_KEY=${ACCESS_KEY:-}
+      # Опционально: размер модели Whisper
+      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-large}
+      # Устройство для Whisper: cuda или cpu
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-cuda}
+      # Тип вычислений: float16 для GPU, int8 для CPU
+      - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-float16}
+      # Опционально: максимальный размер одного загружаемого локального файла (МБ)
+      - UPLOAD_MAX_MB=${UPLOAD_MAX_MB:-2000}
+      # Конфигурация сервера
       - HOST=0.0.0.0
       - PORT=8000
       - HF_HOME=/app/cache/huggingface

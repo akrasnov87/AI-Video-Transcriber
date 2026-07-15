@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -13,6 +13,8 @@ import json
 import re
 import openai
 import time
+import secrets
+from datetime import datetime, timedelta
 
 from video_processor import VideoProcessor
 from transcriber import Transcriber
@@ -30,11 +32,60 @@ logger = logging.getLogger(__name__)
 # ── ДОБАВЛЯЕМ ОТДЕЛЬНЫЙ ЛОГГЕР ДЛЯ ПРОГРЕССА ──
 progress_logger = logging.getLogger('progress')
 progress_logger.setLevel(logging.INFO)
-# Добавляем хендлер с более простым форматом для прогресса
 if not progress_logger.handlers:
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter('%(asctime)s | 🔄 %(message)s', datefmt='%H:%M:%S'))
     progress_logger.addHandler(handler)
+
+# ── АУТЕНТИФИКАЦИЯ ──
+# Чтение ключа доступа из переменных окружения
+ACCESS_KEY = os.getenv("ACCESS_KEY", "")
+# Если ключ не установлен, генерируем случайный
+if not ACCESS_KEY:
+    ACCESS_KEY = secrets.token_urlsafe(32)
+    logger.warning(f"⚠️ ACCESS_KEY не установлен, сгенерирован: {ACCESS_KEY}")
+    logger.warning("Сохраните этот ключ и установите его в переменной окружения ACCESS_KEY")
+else:
+    logger.info("✅ ACCESS_KEY загружен из переменных окружения")
+
+# Хранилище активных сессий
+sessions = {}
+SESSION_TIMEOUT = timedelta(hours=24)  # Сессия живет 24 часа
+
+def generate_session_token() -> str:
+    """Генерация токена сессии"""
+    return secrets.token_urlsafe(32)
+
+def verify_access_key(access_key: str) -> bool:
+    """Проверка ключа доступа"""
+    if not ACCESS_KEY:
+        return False
+    return secrets.compare_digest(access_key.strip(), ACCESS_KEY)
+
+def verify_session(session_token: str) -> bool:
+    """Проверка сессии"""
+    if not session_token:
+        return False
+    session = sessions.get(session_token)
+    if not session:
+        return False
+    # Проверка срока действия
+    if datetime.now() - session["created_at"] > SESSION_TIMEOUT:
+        del sessions[session_token]
+        return False
+    # Обновляем время последнего использования
+    session["last_used"] = datetime.now()
+    return True
+
+def create_session() -> dict:
+    """Создание новой сессии"""
+    token = generate_session_token()
+    sessions[token] = {
+        "created_at": datetime.now(),
+        "last_used": datetime.now(),
+        "is_active": True
+    }
+    return {"token": token, "expires_in": int(SESSION_TIMEOUT.total_seconds())}
 
 # Получение версии из файла
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -315,6 +366,63 @@ async def _run_post_extract_pipeline(
         del active_tasks[task_id]
 
 
+# ── АУТЕНТИФИКАЦИОННЫЕ ЭНДПОИНТЫ ──
+
+@app.get("/api/auth/status")
+async def auth_status():
+    """Проверка статуса аутентификации"""
+    requires_auth = bool(ACCESS_KEY)
+    return {
+        "requires_auth": requires_auth,
+        "has_key": bool(ACCESS_KEY)
+    }
+
+@app.post("/api/auth/login")
+async def login(access_key: str = Form(...)):
+    """Вход с ключом доступа"""
+    if not ACCESS_KEY:
+        raise HTTPException(status_code=503, detail="Аутентификация не настроена на сервере")
+    
+    if not verify_access_key(access_key):
+        raise HTTPException(status_code=401, detail="Неверный ключ доступа")
+    
+    session = create_session()
+    return {
+        "success": True,
+        "token": session["token"],
+        "expires_in": session["expires_in"]
+    }
+
+@app.post("/api/auth/logout")
+async def logout(session_token: str = Form(...)):
+    """Выход из системы"""
+    if session_token in sessions:
+        del sessions[session_token]
+    return {"success": True}
+
+@app.post("/api/auth/verify")
+async def verify(session_token: str = Form(...)):
+    """Проверка валидности сессии"""
+    is_valid = verify_session(session_token)
+    return {"valid": is_valid}
+
+
+# ── ЗАЩИЩЕННЫЕ ЭНДПОИНТЫ ──
+
+def check_auth(session_token: Optional[str] = Header(None, alias="X-Session-Token")):
+    """Проверка аутентификации для защищенных эндпоинтов"""
+    # Если ACCESS_KEY не установлен, аутентификация не требуется
+    if not ACCESS_KEY:
+        return True
+    
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Требуется аутентификация")
+    
+    if not verify_session(session_token):
+        raise HTTPException(status_code=401, detail="Недействительная сессия, требуется повторная аутентификация")
+    
+    return True
+
 @app.get("/")
 async def read_root():
     return FileResponse(str(PROJECT_ROOT / "static" / "index.html"))
@@ -323,7 +431,10 @@ async def read_root():
 async def list_models(
     base_url: str = Form(default=""),
     api_key: str = Form(default=""),
+    session_token: Optional[str] = Header(None, alias="X-Session-Token"),
 ):
+    check_auth(session_token)
+    
     effective_key = api_key or os.getenv("OPENAI_API_KEY", "")
     effective_url = base_url.rstrip("/") or os.getenv("OPENAI_BASE_URL") or None
 
@@ -377,7 +488,6 @@ async def _enqueue_upload_job(
                 break
             total += len(chunk)
             file_size_mb = total / (1024 * 1024)
-            # Показываем прогресс загрузки каждые 10%
             if total % (5 * 1024 * 1024) < 1024 * 1024 or total == len(chunk):
                 progress_logger.info(f"📤 Загрузка: {file_size_mb:.1f} МБ / {file.size / (1024*1024):.1f} МБ ({total/file.size*100:.0f}%)")
             if total > max_bytes:
@@ -446,7 +556,10 @@ async def process_video(
     model_base_url: str = Form(default=""),
     model_id: str = Form(default=""),
     file: Optional[UploadFile] = File(None),
+    session_token: Optional[str] = Header(None, alias="X-Session-Token"),
 ):
+    check_auth(session_token)
+    
     try:
         simple_format_bool = simple_format.lower() == "true"
         
@@ -625,7 +738,10 @@ async def process_upload(
     api_key: str = Form(default=""),
     model_base_url: str = Form(default=""),
     model_id: str = Form(default=""),
+    session_token: Optional[str] = Header(None, alias="X-Session-Token"),
 ):
+    check_auth(session_token)
+    
     simple_format_bool = simple_format.lower() == "true"
     return await _enqueue_upload_job(
         file, summary_language, transcription_language, simple_format_bool, api_key, model_base_url, model_id
@@ -736,13 +852,36 @@ async def process_upload_task(
 
 
 @app.get("/api/task-status/{task_id}")
-async def get_task_status(task_id: str):
+async def get_task_status(
+    task_id: str,
+    session_token: Optional[str] = Header(None, alias="X-Session-Token"),
+):
+    check_auth(session_token)
+    
     if task_id not in tasks:
         raise HTTPException(status_code=404, detail="Задача не найдена")
     return tasks[task_id]
 
 @app.get("/api/task-stream/{task_id}")
-async def task_stream(task_id: str):
+async def task_stream(
+    task_id: str,
+    session_token: Optional[str] = None,  # Из query параметра
+):
+    """SSE поток с поддержкой аутентификации через query параметр"""
+    logger.info(f"🔍 SSE запрос: task_id={task_id}, session_token={session_token[:20] if session_token else 'None'}...")
+    
+    # Проверяем сессию из query параметра
+    if ACCESS_KEY:  # Если аутентификация включена
+        if not session_token:
+            logger.warning("❌ SSE: Токен сессии отсутствует")
+            raise HTTPException(status_code=401, detail="Требуется аутентификация")
+        
+        if not verify_session(session_token):
+            logger.warning(f"❌ SSE: Недействительный токен: {session_token[:20]}...")
+            raise HTTPException(status_code=401, detail="Недействительная сессия, требуется повторная аутентификация")
+        
+        logger.info("✅ SSE: Аутентификация успешна")
+    
     if task_id not in tasks:
         raise HTTPException(status_code=404, detail="Задача не найдена")
     
@@ -792,7 +931,12 @@ async def task_stream(task_id: str):
     )
 
 @app.get("/api/download/{filename}")
-async def download_file(filename: str):
+async def download_file(
+    filename: str,
+    session_token: Optional[str] = Header(None, alias="X-Session-Token"),
+):
+    check_auth(session_token)
+    
     try:
         if not filename.endswith('.md'):
             raise HTTPException(status_code=400, detail="Поддерживаются только .md файлы")
@@ -817,7 +961,12 @@ async def download_file(filename: str):
 
 
 @app.get("/api/download/simple/{task_id}")
-async def download_simple_transcript(task_id: str):
+async def download_simple_transcript(
+    task_id: str,
+    session_token: Optional[str] = Header(None, alias="X-Session-Token"),
+):
+    check_auth(session_token)
+    
     try:
         if task_id not in tasks:
             raise HTTPException(status_code=404, detail="Задача не найдена")
@@ -848,7 +997,12 @@ async def download_simple_transcript(task_id: str):
 
 
 @app.delete("/api/task/{task_id}")
-async def delete_task(task_id: str):
+async def delete_task(
+    task_id: str,
+    session_token: Optional[str] = Header(None, alias="X-Session-Token"),
+):
+    check_auth(session_token)
+    
     if task_id not in tasks:
         raise HTTPException(status_code=404, detail="Задача не найдена")
     
@@ -867,7 +1021,11 @@ async def delete_task(task_id: str):
     return {"message": "Задача отменена и удалена"}
 
 @app.get("/api/tasks/active")
-async def get_active_tasks():
+async def get_active_tasks(
+    session_token: Optional[str] = Header(None, alias="X-Session-Token"),
+):
+    check_auth(session_token)
+    
     active_count = len(active_tasks)
     processing_count = len(processing_urls)
     return {
@@ -884,6 +1042,7 @@ async def system_info():
         "whisper_device": transcriber.device,
         "whisper_compute_type": transcriber.compute_type,
         "whisper_model": transcriber.model_size,
+        "requires_auth": bool(ACCESS_KEY),
     }
     return info
 
@@ -895,6 +1054,7 @@ async def get_config():
         "whisper_model": WHISPER_MODEL_SIZE,
         "whisper_device": WHISPER_DEVICE,
         "whisper_compute_type": WHISPER_COMPUTE_TYPE,
+        "requires_auth": bool(ACCESS_KEY),
     }
 
 @app.get("/api/version")

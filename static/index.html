@@ -660,6 +660,138 @@
       font-family: 'SF Mono', 'Fira Code', monospace;
       letter-spacing: 0.02em;
     }
+    
+    /* ── Auth Overlay ────────────────────────────────────────── */
+    .auth-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(8px);
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+      animation: fadeIn .25s ease;
+    }
+
+    .auth-overlay.show {
+      display: flex;
+    }
+
+    .auth-modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 32px 36px;
+      max-width: 420px;
+      width: 90%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      animation: slideUp .3s ease;
+    }
+
+    .auth-modal-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .auth-modal-header i {
+      font-size: 1.6rem;
+      color: var(--accent-text);
+    }
+
+    .auth-modal-header h2 {
+      font-size: 1.2rem;
+      font-weight: 650;
+      color: var(--text);
+      margin: 0;
+    }
+
+    .auth-modal-desc {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+    }
+
+    .auth-modal-body {
+      margin-bottom: 20px;
+    }
+
+    .auth-input {
+      width: 100%;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      color: var(--text);
+      font-size: 15px;
+      padding: 11px 14px;
+      outline: none;
+      transition: border-color .2s, box-shadow .2s;
+    }
+
+    .auth-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(192,120,48,.12);
+    }
+
+    .auth-error {
+      margin-top: 8px;
+      font-size: 13px;
+      color: var(--error);
+    }
+
+    .auth-modal-footer {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .auth-btn {
+      padding: 9px 20px;
+      border: none;
+      border-radius: var(--r-sm);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .2s;
+    }
+
+    .auth-btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .auth-btn-primary:hover {
+      background: var(--accent-h);
+    }
+
+    .auth-btn-secondary {
+      background: var(--surface-2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    .auth-btn-secondary:hover {
+      border-color: var(--border-light);
+      color: var(--text);
+    }
+
+    .auth-status {
+      font-size: 16px;
+      cursor: default;
+      opacity: 0.7;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
   </style>
 </head>
 <body>
@@ -888,5 +1020,45 @@
 </main>
 
 <script src="/static/app.js?v=20260307"></script>
+
+<!-- Auth Overlay -->
+<div id="authOverlay" class="auth-overlay">
+  <div class="auth-modal">
+    <div class="auth-modal-header">
+      <i class="fas fa-lock"></i>
+      <h2 data-i18n="auth_required">Требуется аутентификация</h2>
+    </div>
+    <p class="auth-modal-desc" data-i18n="auth_required_msg">Введите ключ доступа для использования сервиса.</p>
+    <div class="auth-modal-body">
+      <input
+        id="authInput"
+        type="password"
+        class="auth-input"
+        placeholder="Введите ключ доступа..."
+        data-i18n-placeholder="access_key_placeholder"
+        autocomplete="new-password"
+      >
+      <div id="authError" class="auth-error" style="display:none;"></div>
+    </div>
+    <div class="auth-modal-footer">
+      <button id="authCancelBtn" class="auth-btn auth-btn-secondary" data-i18n="cancel">Отмена</button>
+      <button id="authLoginBtn" class="auth-btn auth-btn-primary" data-i18n="login_btn">Войти</button>
+    </div>
+  </div>
+</div>
+
+<!-- Auth Status in Navbar -->
+<div class="nav-controls">
+  <span id="authStatus" class="auth-status" title="Статус аутентификации">🔓</span>
+  <button id="logoutBtn" class="lang-btn" style="display:none;" data-i18n="logout">Выйти</button>
+  <button id="themeToggle" class="theme-btn" aria-label="Toggle theme">
+    <i class="fas fa-moon"></i>
+  </button>
+  <button id="langToggle" class="lang-btn">
+    <span id="langText">Русский</span>
+    <i class="fas fa-chevron-down" style="font-size:9px;"></i>
+  </button>
+</div>
+
 </body>
 </html>

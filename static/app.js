@@ -10,6 +10,11 @@ class VideoTranscriber {
     this.currentLang    = 'ru';
     this.currentTheme   = localStorage.getItem('vt_theme') || 'dark';
 
+    // Аутентификация
+    this.sessionToken   = localStorage.getItem('vt_session_token') || null;
+    this.isAuthenticated = false;
+    this.requiresAuth   = false;
+
     /* Имитация прогресса */
     this.sp = {
       enabled: false, current: 0, target: 15,
@@ -69,6 +74,16 @@ class VideoTranscriber {
         error_upload_type:       'Unsupported file type',
         error_upload_empty:      'File is empty',
         error_upload_size:       (mb) => `File exceeds ${mb} MB limit`,
+        access_key:              'Access Key',
+        access_key_placeholder:  'Enter your access key...',
+        login:                   'Login',
+        logout:                  'Logout',
+        auth_required:           'Authentication Required',
+        auth_required_msg:       'Please enter your access key to use this service.',
+        login_success:           'Login successful!',
+        login_failed:            'Invalid access key. Please try again.',
+        login_btn:               'Login',
+        cancel:                  'Cancel',
       },
       zh: {
         title:                   'AI 视频转录器',
@@ -122,6 +137,16 @@ class VideoTranscriber {
         error_upload_type:       '不支持的文件类型',
         error_upload_empty:      '文件为空',
         error_upload_size:       (mb) => `文件超过 ${mb} MB 限制`,
+        access_key:              '访问密钥',
+        access_key_placeholder:  '请输入访问密钥...',
+        login:                   '登录',
+        logout:                  '退出',
+        auth_required:           '需要身份验证',
+        auth_required_msg:       '请输入访问密钥以使用此服务。',
+        login_success:           '登录成功！',
+        login_failed:            '无效的访问密钥。请重试。',
+        login_btn:               '登录',
+        cancel:                  '取消',
       },
       ru: {
         title:                   'AI Видео Транскрибатор',
@@ -175,6 +200,16 @@ class VideoTranscriber {
         error_upload_type:       'Неподдерживаемый тип файла',
         error_upload_empty:      'Файл пуст',
         error_upload_size:       (mb) => `Файл превышает лимит ${mb} МБ`,
+        access_key:              'Ключ доступа',
+        access_key_placeholder:  'Введите ключ доступа...',
+        login:                   'Войти',
+        logout:                  'Выйти',
+        auth_required:           'Требуется аутентификация',
+        auth_required_msg:       'Введите ключ доступа для использования сервиса.',
+        login_success:           'Вход выполнен успешно!',
+        login_failed:            'Неверный ключ доступа. Попробуйте снова.',
+        login_btn:               'Войти',
+        cancel:                  'Отмена',
       }
     };
 
@@ -187,7 +222,8 @@ class VideoTranscriber {
     this._applyTheme(this.currentTheme);
     this._switchLang(this.currentLang);
 
-    // Загрузка информации о системе после инициализации
+    // Проверка аутентификации при загрузке
+    setTimeout(() => this._checkAuth(), 300);
     setTimeout(() => this._loadSystemInfo(), 500);
   }
 
@@ -198,7 +234,7 @@ class VideoTranscriber {
     this.submitBtn          = document.getElementById('submitBtn');
     this.summaryLangSel     = document.getElementById('summaryLanguage');
     this.transcriptionLangSel = document.getElementById('transcriptionLanguage');
-    this.simpleFormatChk    = document.getElementById('simpleFormat'); // ← ДОБАВЛЕНО
+    this.simpleFormatChk    = document.getElementById('simpleFormat');
     this.langToggle         = document.getElementById('langToggle');
     this.langText           = document.getElementById('langText');
     this.themeToggle        = document.getElementById('themeToggle');
@@ -235,14 +271,205 @@ class VideoTranscriber {
     this.uploadMaxMb        = 200;
     this._allowedUploadExts = new Set(['.txt', '.mp3', '.mp4', '.m4a', '.wav', '.webm', '.mkv', '.ogg', '.flac']);
 
+    // Аутентификация
+    this.authOverlay        = document.getElementById('authOverlay');
+    this.authInput          = document.getElementById('authInput');
+    this.authLoginBtn       = document.getElementById('authLoginBtn');
+    this.authCancelBtn      = document.getElementById('authCancelBtn');
+    this.authError          = document.getElementById('authError');
+    this.authStatusMsg      = document.getElementById('authStatusMsg');
+
     // Загружаем лимит с сервера
     setTimeout(() => this._loadUploadLimit(), 300);
+  }
+
+  /* ── Аутентификация ───────────────────────────────────── */
+  async _checkAuth() {
+    try {
+      const resp = await fetch(`${this.apiBase}/auth/status`);
+      if (!resp.ok) return;
+      
+      const data = await resp.json();
+      this.requiresAuth = data.requires_auth || false;
+      
+      if (!this.requiresAuth) {
+        this.isAuthenticated = true;
+        this._hideAuthOverlay();
+        this._enableUI(true);
+        this._updateAuthStatus();
+        return;
+      }
+
+      // Если требуется аутентификация, проверяем сохраненную сессию
+      if (this.sessionToken) {
+        const verifyResp = await fetch(`${this.apiBase}/auth/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `session_token=${encodeURIComponent(this.sessionToken)}`
+        });
+        const verifyData = await verifyResp.json();
+        if (verifyData.valid) {
+          this.isAuthenticated = true;
+          this._hideAuthOverlay();
+          this._enableUI(true);
+          this._updateAuthStatus();
+          return;
+        } else {
+          // Сессия не валидна, удаляем токен
+          localStorage.removeItem('vt_session_token');
+          this.sessionToken = null;
+        }
+      }
+
+      // Требуется аутентификация
+      this.isAuthenticated = false;
+      this._showAuthOverlay();
+      this._enableUI(false);
+      this._updateAuthStatus();
+      
+    } catch (e) {
+      console.warn('Ошибка проверки аутентификации:', e);
+    }
+  }
+
+  _showAuthOverlay() {
+    if (this.authOverlay) {
+      this.authOverlay.classList.add('show');
+      this.authInput.value = '';
+      this.authError.style.display = 'none';
+      this.authInput.focus();
+    }
+  }
+
+  _hideAuthOverlay() {
+    if (this.authOverlay) {
+      this.authOverlay.classList.remove('show');
+    }
+  }
+
+  async _handleLogin() {
+    const key = this.authInput.value.trim();
+    if (!key) {
+      this.authError.textContent = this.t('auth_required_msg');
+      this.authError.style.display = 'block';
+      return;
+    }
+
+    try {
+      const resp = await fetch(`${this.apiBase}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `access_key=${encodeURIComponent(key)}`
+      });
+
+      const data = await resp.json();
+      if (!resp.ok) {
+        throw new Error(data.detail || this.t('login_failed'));
+      }
+
+      this.sessionToken = data.token;
+      localStorage.setItem('vt_session_token', this.sessionToken);
+      this.isAuthenticated = true;
+      this._hideAuthOverlay();
+      this._enableUI(true);
+      this._updateAuthStatus();
+      this._showSuccess(this.t('login_success'));
+
+    } catch (e) {
+      this.authError.textContent = e.message || this.t('login_failed');
+      this.authError.style.display = 'block';
+    }
+  }
+
+  async _handleLogout() {
+    if (!this.sessionToken) return;
+
+    try {
+      await fetch(`${this.apiBase}/auth/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `session_token=${encodeURIComponent(this.sessionToken)}`
+      });
+    } catch (e) {
+      console.warn('Ошибка выхода:', e);
+    }
+
+    localStorage.removeItem('vt_session_token');
+    this.sessionToken = null;
+    this.isAuthenticated = false;
+    this._updateAuthStatus();
+    this._enableUI(false);
+    this._showAuthOverlay();
+  }
+
+  _updateAuthStatus() {
+    const statusEl = document.getElementById('authStatus');
+    if (!statusEl) return;
+
+    if (!this.requiresAuth) {
+      statusEl.textContent = '🔓';
+      statusEl.title = 'Аутентификация не требуется';
+      return;
+    }
+
+    if (this.isAuthenticated) {
+      statusEl.textContent = '🔒';
+      statusEl.title = 'Аутентифицирован';
+      const logoutBtn = document.getElementById('logoutBtn');
+      if (logoutBtn) logoutBtn.style.display = 'inline-block';
+    } else {
+      statusEl.textContent = '🔐';
+      statusEl.title = 'Требуется аутентификация';
+      const logoutBtn = document.getElementById('logoutBtn');
+      if (logoutBtn) logoutBtn.style.display = 'none';
+    }
+  }
+
+  _enableUI(enabled) {
+    const elements = [
+      this.videoUrlInput,
+      this.submitBtn,
+      this.summaryLangSel,
+      this.transcriptionLangSel,
+      this.simpleFormatChk,
+      this.uploadZone,
+      this.uploadPickBtn,
+      this.fileInput,
+      this.modelBaseUrl,
+      this.apiKeyInput,
+      this.fetchModelsBtn,
+      this.modelSelect,
+      this.settingsToggle,
+    ];
+
+    elements.forEach(el => {
+      if (el) {
+        el.disabled = !enabled;
+        el.style.opacity = enabled ? '1' : '0.5';
+        el.style.pointerEvents = enabled ? '' : 'none';
+      }
+    });
+
+    if (!enabled) {
+      this.submitBtn.innerHTML = `<span data-i18n="auth_required">🔐 ${this.t('auth_required')}</span>`;
+    } else {
+      this.submitBtn.innerHTML = `<i class="fas fa-search"></i> <span data-i18n="start_transcription">${this.t('start_transcription')}</span>`;
+    }
+  }
+
+  /* ── Вспомогательные методы ──────────────────────────── */
+  async _fetchWithAuth(url, options = {}) {
+    const headers = options.headers || {};
+    if (this.sessionToken) {
+      headers['X-Session-Token'] = this.sessionToken;
+    }
+    return fetch(url, { ...options, headers });
   }
 
   /* ── Загрузка лимита загрузки с сервера ───────────────── */
   async _loadUploadLimit() {
       try {
-          const resp = await fetch(`${this.apiBase}/system-info`);
+          const resp = await this._fetchWithAuth(`${this.apiBase}/system-info`);
           if (resp.ok) {
               const config = await resp.json();
               if (config.upload_max_mb) {
@@ -258,13 +485,13 @@ class VideoTranscriber {
   /* ── Информация о системе ─────────────────────────────── */
   async _loadSystemInfo() {
       try {
-          const versionResp = await fetch(`${this.apiBase}/version`);
+          const versionResp = await this._fetchWithAuth(`${this.apiBase}/version`);
           if (versionResp.ok) {
               const versionData = await versionResp.json();
               this.systemVersion = versionData.version || 'unknown';
           }
           
-          const infoResp = await fetch(`${this.apiBase}/system-info`);
+          const infoResp = await this._fetchWithAuth(`${this.apiBase}/system-info`);
           if (infoResp.ok) {
               const info = await infoResp.json();
               this.systemInfo = info;
@@ -302,7 +529,8 @@ class VideoTranscriber {
       }
       
       const statusEmoji = device === 'cuda' ? '🚀' : '💻';
-      const infoText = `${statusEmoji} ${versionLabel}: ${version} | ${deviceLabel}: ${device} (${compute}) - ${size}`;
+      const authStatus = this.requiresAuth ? (this.isAuthenticated ? '🔒' : '🔐') : '🔓';
+      const infoText = `${authStatus} ${statusEmoji} ${versionLabel}: ${version} | ${deviceLabel}: ${device} (${compute}) - ${size}`;
       
       footer.innerHTML = `<span style="font-size: 11px; color: var(--text-dim);">${infoText}</span>`;
   }
@@ -335,7 +563,7 @@ class VideoTranscriber {
     this.modelBaseUrl.addEventListener('input', debouncedFetch);
     this.apiKeyInput.addEventListener('input', debouncedFetch);
 
-    // Сохранение настроек — ДОБАВЛЕН simpleFormatChk
+    // Сохранение настроек
     [this.modelBaseUrl, this.apiKeyInput, this.modelSelect, this.summaryLangSel, this.transcriptionLangSel, this.simpleFormatChk].forEach(el => {
       el.addEventListener('change', () => this._saveSettings());
     });
@@ -347,6 +575,31 @@ class VideoTranscriber {
     this.dlScript.addEventListener('click',      () => this._downloadFile('script'));
     this.dlTranslation.addEventListener('click', () => this._downloadFile('translation'));
     this.dlSummary.addEventListener('click',     () => this._downloadFile('summary'));
+
+    // Аутентификация
+    if (this.authLoginBtn) {
+      this.authLoginBtn.addEventListener('click', () => this._handleLogin());
+    }
+    if (this.authCancelBtn) {
+      this.authCancelBtn.addEventListener('click', () => {
+        if (this.requiresAuth && !this.isAuthenticated) {
+          this.authError.textContent = this.t('auth_required_msg');
+          this.authError.style.display = 'block';
+        }
+      });
+    }
+    if (this.authInput) {
+      this.authInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') this._handleLogin();
+        if (e.key === 'Escape') this.authCancelBtn?.click();
+      });
+    }
+
+    // Выход
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', () => this._handleLogout());
+    }
 
     if (this.uploadPickBtn && this.fileInput && this.uploadZone) {
       this.uploadPickBtn.addEventListener('click', (e) => {
@@ -438,7 +691,7 @@ class VideoTranscriber {
       model:    this.modelSelect.value,
       summaryLang: this.summaryLangSel.value,
       transcriptionLang: this.transcriptionLangSel.value,
-      simpleFormat: this.simpleFormatChk.checked, // ← ДОБАВЛЕНО
+      simpleFormat: this.simpleFormatChk.checked,
       lang:     this.currentLang,
       theme:    this.currentTheme,
     };
@@ -454,7 +707,7 @@ class VideoTranscriber {
       if (s.apiKey)           this.apiKeyInput.value  = s.apiKey;
       if (s.summaryLang)      this.summaryLangSel.value = s.summaryLang;
       if (s.transcriptionLang) this.transcriptionLangSel.value = s.transcriptionLang || 'auto';
-      if (s.simpleFormat !== undefined) this.simpleFormatChk.checked = s.simpleFormat; // ← ДОБАВЛЕНО
+      if (s.simpleFormat !== undefined) this.simpleFormatChk.checked = s.simpleFormat;
       if (s.lang)             this.currentLang = s.lang;
       if (s.theme)            this.currentTheme = s.theme;
       this._savedModel = s.model || '';
@@ -471,6 +724,11 @@ class VideoTranscriber {
 
   /* ── Получение моделей ────────────────────────────────── */
   async _fetchModels(silent = false) {
+    if (!this.isAuthenticated && this.requiresAuth) {
+      this._showAuthOverlay();
+      return;
+    }
+
     const baseUrl = this.modelBaseUrl.value.trim().replace(/\/$/, '');
     const apiKey  = this.apiKeyInput.value.trim();
 
@@ -488,7 +746,7 @@ class VideoTranscriber {
       fd.append('base_url', baseUrl);
       fd.append('api_key',  apiKey);
 
-      const resp = await fetch(`${this.apiBase}/models`, { method: 'POST', body: fd });
+      const resp = await this._fetchWithAuth(`${this.apiBase}/models`, { method: 'POST', body: fd });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         throw new Error(err.detail || `HTTP ${resp.status}`);
@@ -529,12 +787,17 @@ class VideoTranscriber {
 
   /* ── Транскрипция ────────────────────────────────────── */
   async _startTranscription() {
+    if (!this.isAuthenticated && this.requiresAuth) {
+      this._showAuthOverlay();
+      return;
+    }
+
     if (this.submitBtn.disabled) return;
 
     const url     = this.videoUrlInput.value.trim();
     const sumLang = this.summaryLangSel.value;
     const transLang = this.transcriptionLangSel.value;
-    const simpleFormat = this.simpleFormatChk.checked; // ← ДОБАВЛЕНО
+    const simpleFormat = this.simpleFormatChk.checked;
 
     if (!url) { this._showError(this.t('error_invalid_url')); return; }
 
@@ -547,7 +810,7 @@ class VideoTranscriber {
       fd.append('url',              url);
       fd.append('summary_language', sumLang);
       fd.append('transcription_language', transLang);
-      fd.append('simple_format', simpleFormat ? 'true' : 'false'); // ← ДОБАВЛЕНО
+      fd.append('simple_format', simpleFormat ? 'true' : 'false');
 
       const apiKey  = this.apiKeyInput.value.trim();
       const baseUrl = this.modelBaseUrl.value.trim().replace(/\/$/, '');
@@ -556,7 +819,11 @@ class VideoTranscriber {
       if (baseUrl) fd.append('model_base_url', baseUrl);
       if (modelId) fd.append('model_id',       modelId);
 
-      const resp = await fetch(`${this.apiBase}/process-video`, { method: 'POST', body: fd });
+      const resp = await this._fetchWithAuth(`${this.apiBase}/process-video`, { 
+        method: 'POST', 
+        body: fd 
+      });
+      
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         throw new Error(err.detail || 'Ошибка запроса');
@@ -578,6 +845,11 @@ class VideoTranscriber {
   }
 
   async _startFileUpload(file) {
+    if (!this.isAuthenticated && this.requiresAuth) {
+      this._showAuthOverlay();
+      return;
+    }
+
     if (this.submitBtn.disabled) return;
 
     const parts = (file.name || '').split('.');
@@ -602,13 +874,13 @@ class VideoTranscriber {
 
     const sumLang = this.summaryLangSel.value;
     const transLang = this.transcriptionLangSel.value;
-    const simpleFormat = this.simpleFormatChk.checked; // ← ДОБАВЛЕНО
+    const simpleFormat = this.simpleFormatChk.checked;
     try {
       const fd = new FormData();
       fd.append('file', file, file.name);
       fd.append('summary_language', sumLang);
       fd.append('transcription_language', transLang);
-      fd.append('simple_format', simpleFormat ? 'true' : 'false'); // ← ДОБАВЛЕНО
+      fd.append('simple_format', simpleFormat ? 'true' : 'false');
 
       const apiKey  = this.apiKeyInput.value.trim();
       const baseUrl = this.modelBaseUrl.value.trim().replace(/\/$/, '');
@@ -617,7 +889,11 @@ class VideoTranscriber {
       if (baseUrl) fd.append('model_base_url', baseUrl);
       if (modelId) fd.append('model_id',       modelId);
 
-      const resp = await fetch(`${this.apiBase}/process-video`, { method: 'POST', body: fd });
+      const resp = await this._fetchWithAuth(`${this.apiBase}/process-video`, { 
+        method: 'POST', 
+        body: fd 
+      });
+      
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         const d = err.detail;
@@ -646,7 +922,14 @@ class VideoTranscriber {
   /* ── SSE ──────────────────────────────────────────────── */
   _startSSE() {
     if (!this.currentTaskId) return;
-    this.eventSource = new EventSource(`${this.apiBase}/task-stream/${this.currentTaskId}`);
+    
+    // Используем URL параметр вместо заголовка для SSE
+    let url = `${this.apiBase}/task-stream/${this.currentTaskId}`;
+    if (this.sessionToken) {
+      url += `?session_token=${encodeURIComponent(this.sessionToken)}`;
+    }
+    
+    this.eventSource = new EventSource(url);
 
     this.eventSource.onmessage = (ev) => {
       try {
@@ -669,7 +952,7 @@ class VideoTranscriber {
       this._stopSSE();
       try {
         if (this.currentTaskId) {
-          const r = await fetch(`${this.apiBase}/task-status/${this.currentTaskId}`);
+          const r = await this._fetchWithAuth(`${this.apiBase}/task-status/${this.currentTaskId}`);
           if (r.ok) {
             const task = await r.json();
             if (task?.status === 'completed') {
@@ -686,7 +969,10 @@ class VideoTranscriber {
   }
 
   _stopSSE() {
-    if (this.eventSource) { this.eventSource.close(); this.eventSource = null; }
+    if (this.eventSource) { 
+      this.eventSource.close(); 
+      this.eventSource = null; 
+    }
   }
 
   /* ── Прогресс ─────────────────────────────────────────── */
@@ -847,14 +1133,11 @@ class VideoTranscriber {
   }
 
   _showResults(script, summary, videoTitle, translation, detectedLang, summaryLang) {
-    // Проверяем, был ли использован простой формат
     const isSimpleFormat = script && !script.includes('# Video Transcription') && !script.includes('**Detected Language:**');
     
     if (isSimpleFormat) {
-        // Простой формат — сохраняем переносы строк
         this.scriptContent.innerHTML = `<pre style="white-space: pre-wrap; font-family: inherit; margin: 0; padding: 0; background: transparent; border: none; color: inherit; font-size: 14px; line-height: 1.8;">${this._escapeHtml(script)}</pre>`;
     } else {
-        // Markdown формат — используем marked
         this.scriptContent.innerHTML = script ? marked.parse(script) : '';
     }
 
@@ -889,7 +1172,7 @@ class VideoTranscriber {
   async _downloadFile(type) {
     if (!this.currentTaskId) { this._showError(this.t('error_no_download')); return; }
     try {
-      const r = await fetch(`${this.apiBase}/task-status/${this.currentTaskId}`);
+      const r = await this._fetchWithAuth(`${this.apiBase}/task-status/${this.currentTaskId}`);
       if (!r.ok) throw new Error('Не удалось получить статус задачи');
       const task = await r.json();
 
@@ -913,9 +1196,11 @@ class VideoTranscriber {
   /* ── Вспомогательные функции UI ───────────────────────── */
   _setLoading(on) {
     this.submitBtn.disabled = on;
-    this.submitBtn.innerHTML = on
-      ? `<span class="spinner"></span> ${this.t('processing')}`
-      : `<i class="fas fa-search"></i> <span>${this.t('start_transcription')}</span>`;
+    if (!on || !this.requiresAuth || this.isAuthenticated) {
+      this.submitBtn.innerHTML = on
+        ? `<span class="spinner"></span> ${this.t('processing')}`
+        : `<i class="fas fa-search"></i> <span>${this.t('start_transcription')}</span>`;
+    }
     if (this.uploadPickBtn) this.uploadPickBtn.disabled = on;
     if (this.uploadZone) {
       this.uploadZone.style.pointerEvents = on ? 'none' : '';
@@ -932,6 +1217,18 @@ class VideoTranscriber {
     setTimeout(() => this._hideError(), 6000);
   }
   _hideError() { this.errorBanner.classList.remove('show'); }
+
+  _showSuccess(msg) {
+    this.errorMsg.textContent = msg;
+    this.errorBanner.classList.add('show');
+    this.errorBanner.style.borderColor = 'var(--success)';
+    this.errorBanner.style.color = 'var(--success)';
+    setTimeout(() => {
+      this._hideError();
+      this.errorBanner.style.borderColor = '';
+      this.errorBanner.style.color = '';
+    }, 3000);
+  }
 
   _debounce(fn, ms) {
     let t;

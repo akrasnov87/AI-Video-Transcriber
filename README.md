@@ -55,6 +55,17 @@ cp .env.example .env
 # Или используя Docker напрямую
 docker build -t ai-video-transcriber .
 
+# Соберите образ
+docker build -t akrasnov87/ai-video-transcriber:1.0.0 .
+
+# Запустите с GPU
+docker run --gpus all -p 8000:8000 \
+  -e WHISPER_MODEL_SIZE=large \
+  -e WHISPER_DEVICE=cuda \
+  -e WHISPER_COMPUTE_TYPE=float16 \
+  -e OPENAI_API_KEY=your_key_here \
+  akrasnov87/ai-video-transcriber:1.0.0
+
 # или через команду, версия берётся из version
 
 chmod +x build.sh

@@ -1,6 +1,6 @@
 services:
   transcriber:
-    image: akrasnov87/ai-video-transcriber:1.0.0
+    image: akrasnov87/ai-video-transcriber:1.1.1
     ports:
       - "8000:8000"
     environment:
@@ -8,21 +8,29 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-your_openai_api_key_here}
       # Опционально: пользовательский эндпоинт OpenAI
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      # Опционально: размер модели Whisper
+      # Размер модели Whisper (для CPU рекомендуется использовать base или small)
+      # Опции: tiny, base, small, medium, large
       - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
-      # Устройство для Whisper: cuda или cpu
-      - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
-      # Тип вычислений: float16 для GPU, int8 для CPU
-      - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
+      # Устройство для Whisper: cpu (для CPU)
+      - WHISPER_DEVICE=cpu
+      # Тип вычислений для CPU: int8 (оптимально для CPU)
+      - WHISPER_COMPUTE_TYPE=int8
       # Опционально: максимальный размер одного загружаемого локального файла (МБ)
       - UPLOAD_MAX_MB=${UPLOAD_MAX_MB:-2000}
       # Конфигурация сервера
       - HOST=0.0.0.0
       - PORT=8000
+      # Кэш для моделей
       - HF_HOME=/app/cache/huggingface
       - TRANSFORMERS_CACHE=/app/cache/huggingface/hub
       - PYTORCH_TRANSFORMERS_CACHE=/app/cache/huggingface/hub
+      # Оптимизация для CPU
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-4}
+      - MKL_NUM_THREADS=${MKL_NUM_THREADS:-4}
+      - PYTHONUNBUFFERED=1
     volumes:
       - ./temp:/app/temp:rw
       - ./hf_cache:/app/cache/huggingface:rw
     restart: unless-stopped
+    # Для CPU не требуется GPU ресурсы
+    # Удаляем секцию deploy с GPU

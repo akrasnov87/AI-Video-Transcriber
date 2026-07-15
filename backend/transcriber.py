@@ -2,6 +2,7 @@ import os
 from faster_whisper import WhisperModel
 import logging
 from typing import Optional
+import gc
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,20 @@ class Transcriber:
         self.device = device or os.getenv("WHISPER_DEVICE", "cpu")
         self.compute_type = compute_type or os.getenv("WHISPER_COMPUTE_TYPE", "int8")
         
+        # Проверка CUDA доступности
+        if self.device == "cuda":
+            try:
+                import ctypes
+                # Проверяем, доступна ли CUDA через ctypes
+                cuda_path = os.environ.get('CUDA_PATH', '/usr/local/cuda')
+                cuda_lib = ctypes.CDLL(f"{cuda_path}/lib64/libcudart.so")
+                logger.info("✅ CUDA библиотека найдена")
+            except Exception as e:
+                logger.warning(f"⚠️ CUDA библиотека не найдена: {e}, переключение на CPU")
+                self.device = "cpu"
+                self.compute_type = "int8"
+        
+        # Для CUDA автоматически используем float16 для лучшей производительности
         if self.device == "cuda" and self.compute_type == "int8":
             self.compute_type = "float16"
             logger.info(f"Автоматически установлен compute_type=float16 для GPU")
@@ -36,14 +51,29 @@ class Transcriber:
         
     def _load_model(self):
         if self.model is None:
-            logger.info(f"Загрузка модели Whisper: {self.model_size} на {self.device}")
+            logger.info(f"🔄 Загрузка модели Whisper: {self.model_size} на {self.device}")
             try:
+                # Для GPU используем int8_float16 для лучшей производительности
+                if self.device == "cuda":
+                    compute = "float16"  # float16 для GPU
+                else:
+                    compute = self.compute_type
+                
                 self.model = WhisperModel(
                     self.model_size, 
                     device=self.device, 
-                    compute_type=self.compute_type
+                    compute_type=compute
                 )
-                logger.info(f"✅ Модель успешно загружена на {self.device}")
+                logger.info(f"✅ Модель успешно загружена на {self.device} с compute_type={compute}")
+                
+                # Дополнительная проверка GPU
+                if self.device == "cuda":
+                    try:
+                        # Проверяем, что модель действительно на GPU
+                        logger.info("✅ Whisper модель загружена на GPU")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Не удалось подтвердить загрузку на GPU: {e}")
+                
             except Exception as e:
                 logger.error(f"❌ Ошибка загрузки модели на {self.device}: {str(e)}")
                 
@@ -62,6 +92,24 @@ class Transcriber:
                         raise Exception(f"Ошибка загрузки модели на CPU: {str(e2)}")
                 else:
                     raise Exception(f"Ошибка загрузки модели: {str(e)}")
+    
+    def _unload_model(self):
+        """Выгрузка модели из памяти"""
+        if self.model is not None:
+            logger.info("🧹 Выгрузка модели Whisper из памяти...")
+            try:
+                # Удаляем модель
+                del self.model
+                self.model = None
+                
+                # Принудительный сбор мусора
+                gc.collect()
+                
+                progress_logger.info("✅ Модель Whisper выгружена из памяти")
+                logger.info("✅ Модель Whisper успешно выгружена")
+                
+            except Exception as e:
+                logger.error(f"⚠️ Ошибка при выгрузке модели: {str(e)}")
     
     async def transcribe(self, audio_path: str, language: Optional[str] = None, simple_format: bool = False) -> str:
         try:
@@ -141,12 +189,17 @@ class Transcriber:
                 
                 transcript_text = "\n".join(transcript_lines)
             
+            # Выгружаем модель после завершения транскрипции
+            self._unload_model()
+            
             progress_logger.info(f"✅ Транскрипция завершена: {segment_count} сегментов, {elapsed:.1f}с")
             logger.info(f"🎙️ Язык: {detected_language}, вероятность: {info.language_probability:.2f}")
             
             return transcript_text
             
         except Exception as e:
+            # В случае ошибки также пытаемся выгрузить модель
+            self._unload_model()
             logger.error(f"❌ Ошибка транскрипции: {str(e)}")
             raise Exception(f"Ошибка транскрипции: {str(e)}")
     

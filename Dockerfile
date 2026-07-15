@@ -1,7 +1,7 @@
 # AI Видео Транскрибатор Docker образ с поддержкой GPU
 FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
-# Устанавливаем Python 3.10 (уже есть в Ubuntu 22.04) и зависимости
+# Устанавливаем Python 3.10 и зависимости
 RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get update && apt-get install -y --no-install-recommends \
     python3.10 \
@@ -19,6 +19,10 @@ RUN export DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
+# Устанавливаем переменные окружения для CUDA
+ENV CUDA_VISIBLE_DEVICES=0
+ENV LD_LIBRARY_PATH=/usr/local/cuda-12.2/lib64:${LD_LIBRARY_PATH}
+
 # Обновляем pip и устанавливаем зависимости
 COPY requirements.txt .
 RUN python3 -m pip install --upgrade pip setuptools wheel \
@@ -33,13 +37,17 @@ RUN mkdir -p temp /app/cache/huggingface
 # Устанавливаем переменные окружения
 ENV HOST=0.0.0.0
 ENV PORT=8000
-ENV WHISPER_MODEL_SIZE=base
-ENV UPLOAD_MAX_MB=200
+ENV WHISPER_MODEL_SIZE=large
+ENV WHISPER_DEVICE=cuda
+ENV WHISPER_COMPUTE_TYPE=float16
+ENV UPLOAD_MAX_MB=2000
 ENV HF_HOME=/app/cache/huggingface
 ENV TRANSFORMERS_CACHE=/app/cache/huggingface/hub
 ENV PYTORCH_TRANSFORMERS_CACHE=/app/cache/huggingface/hub
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
+ENV PYTHONUNBUFFERED=1
+ENV PRODUCTION_MODE=true
 
 # Открываем порт
 EXPOSE 8000

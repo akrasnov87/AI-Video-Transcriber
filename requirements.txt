@@ -7,3 +7,5 @@ openai>=1.51.0
 pydantic>=2.7.0
 aiofiles>=24.1.0
 python-dotenv>=1.1.0
+# Для GPU поддержки - НЕ ИСПОЛЬЗУЙТЕ torch, используйте faster-whisper с CUDA
+# faster-whisper использует ctypes для CUDA, torch не требуется

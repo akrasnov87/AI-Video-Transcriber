@@ -29,16 +29,11 @@ class Transcriber:
         self.device = device or os.getenv("WHISPER_DEVICE", "cpu")
         self.compute_type = compute_type or os.getenv("WHISPER_COMPUTE_TYPE", "int8")
         
-        # Проверка CUDA доступности
+        # Проверка CUDA доступности - улучшенная версия
         if self.device == "cuda":
-            try:
-                import ctypes
-                # Проверяем, доступна ли CUDA через ctypes
-                cuda_path = os.environ.get('CUDA_PATH', '/usr/local/cuda')
-                cuda_lib = ctypes.CDLL(f"{cuda_path}/lib64/libcudart.so")
-                logger.info("✅ CUDA библиотека найдена")
-            except Exception as e:
-                logger.warning(f"⚠️ CUDA библиотека не найдена: {e}, переключение на CPU")
+            cuda_found = self._check_cuda_available()
+            if not cuda_found:
+                logger.warning("⚠️ CUDA не найдена, переключение на CPU")
                 self.device = "cpu"
                 self.compute_type = "int8"
         
@@ -48,14 +43,67 @@ class Transcriber:
             logger.info(f"Автоматически установлен compute_type=float16 для GPU")
         
         logger.info(f"Whisper будет использовать: device={self.device}, compute_type={self.compute_type}, model={self.model_size}")
+    
+    def _check_cuda_available(self) -> bool:
+        """Проверка доступности CUDA через различные методы"""
+        import ctypes
+        import glob
         
+        # Пути поиска CUDA библиотеки
+        cuda_paths = [
+            os.environ.get('CUDA_PATH', '/usr/local/cuda'),
+            '/usr/local/cuda-12',
+            '/usr/local/cuda-12.2',
+            '/usr/local/cuda-12.1',
+            '/usr/local/cuda-12.0',
+            '/usr/lib/x86_64-linux-gnu',
+        ]
+        
+        for cuda_path in cuda_paths:
+            lib_paths = [
+                f"{cuda_path}/lib64/libcudart.so",
+                f"{cuda_path}/lib64/libcudart.so.12",
+                f"{cuda_path}/lib/libcudart.so",
+                f"{cuda_path}/lib/libcudart.so.12",
+            ]
+            
+            # Также ищем через glob
+            if os.path.exists(cuda_path):
+                pattern = f"{cuda_path}/**/libcudart.so*"
+                found = glob.glob(pattern, recursive=True)
+                if found:
+                    lib_paths.extend(found[:5])
+            
+            for lib_path in lib_paths:
+                if os.path.exists(lib_path):
+                    try:
+                        ctypes.CDLL(lib_path)
+                        logger.info(f"✅ CUDA библиотека найдена: {lib_path}")
+                        return True
+                    except Exception:
+                        continue
+        
+        # Проверяем через nvidia-smi
+        try:
+            import subprocess
+            result = subprocess.run(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout.strip():
+                logger.info(f"✅ NVIDIA GPU обнаружен: {result.stdout.strip()}")
+                return True
+        except Exception:
+            pass
+        
+        logger.warning("⚠️ CUDA библиотека не найдена")
+        return False
+    
     def _load_model(self):
         if self.model is None:
             logger.info(f"🔄 Загрузка модели Whisper: {self.model_size} на {self.device}")
             try:
-                # Для GPU используем int8_float16 для лучшей производительности
+                # Для GPU используем float16 для лучшей производительности
                 if self.device == "cuda":
-                    compute = "float16"  # float16 для GPU
+                    compute = "float16"
                 else:
                     compute = self.compute_type
                 
@@ -161,7 +209,6 @@ class Transcriber:
                     text = segment.text.strip()
                     transcript_lines.append(f"[{start_time_seg} → {end_time_seg}]: {text}")
                     segment_count += 1
-                    # Показываем прогресс каждые 10 сегментов
                     if segment_count % 10 == 0:
                         progress_logger.info(f"🎙️ Транскрипция: {segment_count} сегментов обработано...")
                 transcript_text = "\n".join(transcript_lines)
@@ -198,7 +245,6 @@ class Transcriber:
             return transcript_text
             
         except Exception as e:
-            # В случае ошибки также пытаемся выгрузить модель
             self._unload_model()
             logger.error(f"❌ Ошибка транскрипции: {str(e)}")
             raise Exception(f"Ошибка транскрипции: {str(e)}")

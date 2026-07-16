@@ -1,5 +1,5 @@
 # AI Видео Транскрибатор Docker образ с поддержкой GPU
-FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+FROM nvidia/cuda:12.2.0-devel-ubuntu22.04
 
 # Устанавливаем Python 3.10 и зависимости
 RUN export DEBIAN_FRONTEND=noninteractive \
@@ -22,6 +22,7 @@ WORKDIR /app
 # Устанавливаем переменные окружения для CUDA
 ENV CUDA_VISIBLE_DEVICES=0
 ENV LD_LIBRARY_PATH=/usr/local/cuda-12.2/lib64:${LD_LIBRARY_PATH}
+ENV PATH=/usr/local/cuda-12.2/bin:${PATH}
 
 # Обновляем pip и устанавливаем зависимости
 COPY requirements.txt .

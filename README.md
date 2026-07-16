@@ -60,11 +60,18 @@ docker build -t akrasnov87/ai-video-transcriber:1.0.0 .
 
 # Запустите с GPU
 docker run --gpus all -p 8000:8000 \
+  --restart unless-stopped \
   -e WHISPER_MODEL_SIZE=large \
   -e WHISPER_DEVICE=cuda \
   -e WHISPER_COMPUTE_TYPE=float16 \
-  -e OPENAI_API_KEY=your_key_here \
-  akrasnov87/ai-video-transcriber:1.0.0
+  -e ACCESS_KEY=my_secret_access_key_12345 \
+  -e UPLOAD_MAX_MB=2000 \
+  -e HF_HOME=/app/cache/huggingface \
+  -e TRANSFORMERS_CACHE=/app/cache/huggingface/hub \
+  -e PYTORCH_TRANSFORMERS_CACHE=/app/cache/huggingface/hub
+  -v ./temp:/app/temp:rw \
+  -v ./hf_cache:/app/cache/huggingface:rw \
+  akrasnov87/ai-video-transcriber:1.1.1
 
 # или через команду, версия берётся из version
 

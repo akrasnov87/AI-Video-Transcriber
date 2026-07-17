@@ -1182,8 +1182,14 @@ class VideoTranscriber {
       else if (type === 'translation') filename = task.translation_path ? task.translation_path.split('/').pop() : `translation_${task.safe_title||'x'}_${task.short_id||'x'}.md`;
       else throw new Error('Неизвестный тип');
 
+      // ✅ Добавляем токен в URL как query-параметр
+      let downloadUrl = `${this.apiBase}/download/${encodeURIComponent(filename)}`;
+      if (this.sessionToken) {
+        downloadUrl += `?token=${encodeURIComponent(this.sessionToken)}`;
+      }
+
       const a = document.createElement('a');
-      a.href = `${this.apiBase}/download/${encodeURIComponent(filename)}`;
+      a.href = downloadUrl;
       a.download = filename;
       document.body.appendChild(a);
       a.click();

@@ -934,8 +934,18 @@ async def task_stream(
 async def download_file(
     filename: str,
     session_token: Optional[str] = Header(None, alias="X-Session-Token"),
+    token: Optional[str] = None,  # ✅ Поддержка токена в query-параметре
 ):
-    check_auth(session_token)
+    # Проверяем сначала заголовок, потом query-параметр
+    auth_token = session_token or token
+    
+    # Если ACCESS_KEY не установлен, аутентификация не требуется
+    if ACCESS_KEY:
+        if not auth_token:
+            raise HTTPException(status_code=401, detail="Требуется аутентификация")
+        
+        if not verify_session(auth_token):
+            raise HTTPException(status_code=401, detail="Недействительная сессия, требуется повторная аутентификация")
     
     try:
         if not filename.endswith('.md'):
@@ -964,8 +974,17 @@ async def download_file(
 async def download_simple_transcript(
     task_id: str,
     session_token: Optional[str] = Header(None, alias="X-Session-Token"),
+    token: Optional[str] = None,  # ✅ Поддержка токена в query-параметре
 ):
-    check_auth(session_token)
+    # Проверяем сначала заголовок, потом query-параметр
+    auth_token = session_token or token
+    
+    if ACCESS_KEY:
+        if not auth_token:
+            raise HTTPException(status_code=401, detail="Требуется аутентификация")
+        
+        if not verify_session(auth_token):
+            raise HTTPException(status_code=401, detail="Недействительная сессия, требуется повторная аутентификация")
     
     try:
         if task_id not in tasks:

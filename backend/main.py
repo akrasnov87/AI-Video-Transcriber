@@ -229,6 +229,7 @@ async def _run_post_extract_pipeline(
     model_base_url: str = "",
     model_id: str = "",
     simple_format: bool = False,
+    summary_prompt: str = "",
 ) -> None:
     """Общий конвейер после получения raw_script."""
     short_id = task_id.replace("-", "")[:6]
@@ -309,7 +310,18 @@ async def _run_post_extract_pipeline(
     save_tasks(tasks)
     await broadcast_task_update(task_id, tasks[task_id])
 
-    summary = await request_summarizer.summarize(script, summary_language, video_title)
+    if summary_prompt and summary_prompt.strip():
+        progress_logger.info(
+            f"📊 Задача {short_id}: Применяется пользовательский промпт "
+            f"({len(summary_prompt)} символов)"
+        )
+
+    summary = await request_summarizer.summarize(
+        script,
+        summary_language,
+        video_title,
+        custom_prompt=summary_prompt,
+    )
     summary_with_source = summary + f"\n\nsource: {source_ref}\n"
 
     script_filename = f"transcript_{task_id}.md"
@@ -459,6 +471,7 @@ async def _enqueue_upload_job(
     api_key: str,
     model_base_url: str,
     model_id: str,
+    summary_prompt: str = "",
 ) -> dict:
     """Сохранение загруженного файла и постановка в очередь."""
     raw_name = file.filename or "upload.bin"
@@ -513,6 +526,12 @@ async def _enqueue_upload_job(
 
     logger.info(f"📁 Файл сохранен: {dest}, размер: {file_size_mb:.1f} МБ")
 
+    if summary_prompt and summary_prompt.strip():
+        logger.info(
+            f"📝 Задача {task_id}: получен summary_prompt "
+            f"({len(summary_prompt)} символов)"
+        )
+
     tasks[task_id] = {
         "status": "processing",
         "progress": 0,
@@ -523,6 +542,7 @@ async def _enqueue_upload_job(
         "url": source_label,
         "transcription_language": transcription_language,
         "simple_format": simple_format,
+        "summary_prompt": summary_prompt,
     }
     save_tasks(tasks)
 
@@ -539,6 +559,7 @@ async def _enqueue_upload_job(
             api_key,
             model_base_url,
             model_id,
+            summary_prompt,
         )
     )
     active_tasks[task_id] = bg
@@ -555,6 +576,7 @@ async def process_video(
     api_key: str = Form(default=""),
     model_base_url: str = Form(default=""),
     model_id: str = Form(default=""),
+    summary_prompt: str = Form(default=""),
     file: Optional[UploadFile] = File(None),
     session_token: Optional[str] = Header(None, alias="X-Session-Token"),
 ):
@@ -565,7 +587,8 @@ async def process_video(
         
         if file is not None and (file.filename or "").strip():
             return await _enqueue_upload_job(
-                file, summary_language, transcription_language, simple_format_bool, api_key, model_base_url, model_id
+                file, summary_language, transcription_language, simple_format_bool,
+                api_key, model_base_url, model_id, summary_prompt,
             )
 
         stripped = (url or "").strip()
@@ -577,6 +600,12 @@ async def process_video(
 
         url = stripped
         logger.info(f"🔗 Обработка URL: {url}")
+
+        if summary_prompt and summary_prompt.strip():
+            logger.info(
+                f"📝 Для URL получен summary_prompt "
+                f"({len(summary_prompt)} символов)"
+            )
 
         if url in processing_urls:
             for tid, task in tasks.items():
@@ -600,11 +629,14 @@ async def process_video(
             "url": url,
             "transcription_language": transcription_language,
             "simple_format": simple_format_bool,
+            "summary_prompt": summary_prompt,
         }
         save_tasks(tasks)
         
         task = asyncio.create_task(process_video_task(
-            task_id, url, summary_language, transcription_language, simple_format_bool, api_key, model_base_url, model_id
+            task_id, url, summary_language, transcription_language,
+            simple_format_bool, api_key, model_base_url, model_id,
+            summary_prompt,
         ))
         active_tasks[task_id] = task
         
@@ -625,6 +657,7 @@ async def process_video_task(
     api_key: str = "",
     model_base_url: str = "",
     model_id: str = "",
+    summary_prompt: str = "",
 ):
     short_id = task_id.replace("-", "")[:6]
     try:
@@ -712,6 +745,7 @@ async def process_video_task(
             model_base_url=model_base_url,
             model_id=model_id,
             simple_format=simple_format,
+            summary_prompt=summary_prompt,
         )
 
     except Exception as e:
@@ -738,13 +772,15 @@ async def process_upload(
     api_key: str = Form(default=""),
     model_base_url: str = Form(default=""),
     model_id: str = Form(default=""),
+    summary_prompt: str = Form(default=""),
     session_token: Optional[str] = Header(None, alias="X-Session-Token"),
 ):
     check_auth(session_token)
     
     simple_format_bool = simple_format.lower() == "true"
     return await _enqueue_upload_job(
-        file, summary_language, transcription_language, simple_format_bool, api_key, model_base_url, model_id
+        file, summary_language, transcription_language, simple_format_bool,
+        api_key, model_base_url, model_id, summary_prompt,
     )
 
 
@@ -760,6 +796,7 @@ async def process_upload_task(
     api_key: str = "",
     model_base_url: str = "",
     model_id: str = "",
+    summary_prompt: str = "",
 ):
     short_id = task_id.replace("-", "")[:6]
     source_ref = f"upload:{original_name}"
@@ -836,6 +873,7 @@ async def process_upload_task(
             model_base_url=model_base_url,
             model_id=model_id,
             simple_format=simple_format,
+            summary_prompt=summary_prompt,
         )
 
     except Exception as e:
@@ -1079,6 +1117,16 @@ async def get_config():
 @app.get("/api/version")
 async def get_api_version():
     return {"version": get_version()}
+
+@app.on_event("shutdown")
+async def _on_shutdown():
+    """Освобождение ресурсов при остановке сервера."""
+    try:
+        logger.info("🛑 Остановка сервера: выгрузка Whisper-модели из памяти")
+        transcriber.shutdown()
+    except Exception as e:
+        logger.warning(f"Ошибка при выгрузке модели на shutdown: {e}")
+
 
 if __name__ == "__main__":
     import uvicorn

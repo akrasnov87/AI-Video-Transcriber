@@ -29,6 +29,8 @@ services:
       - PYTORCH_TRANSFORMERS_CACHE=/app/cache/huggingface/hub
       - CUDA_VISIBLE_DEVICES=0
       - LD_LIBRARY_PATH=/usr/local/cuda-12.2/lib64:${LD_LIBRARY_PATH}
+      - WHISPER_KEEP_MODEL_LOADED=${WHISPER_KEEP_MODEL_LOADED:-true}
+      - WHISPER_IDLE_UNLOAD_SECONDS=${WHISPER_IDLE_UNLOAD_SECONDS:-1800}
     volumes:
       - ./temp:/app/temp:rw
       - ./hf_cache:/app/cache/huggingface:rw

@@ -962,14 +962,25 @@ Core requirements:
         
         return '\n\n'.join(basic_paragraphs)
 
-    async def summarize(self, transcript: str, target_language: str = "zh", video_title: str = None) -> str:
+    async def summarize(
+        self,
+        transcript: str,
+        target_language: str = "zh",
+        video_title: str = None,
+        custom_prompt: str = "",
+    ) -> str:
         """
-        Создание резюме транскрипции видео
-        
+        Создание резюме транскрипции видео.
+
         Args:
             transcript: Текст транскрипции
             target_language: Код целевого языка
-            
+            video_title: Название видео (для заголовка)
+            custom_prompt: Пользовательский промпт (опционально).
+                Если задан — используется как дополнительная инструкция
+                при генерации резюме с более высоким приоритетом,
+                чем базовые правила.
+
         Returns:
             Текст резюме (в формате Markdown)
         """
@@ -977,30 +988,49 @@ Core requirements:
             if not self.client:
                 logger.warning("OpenAI API недоступен, создание запасного резюме")
                 return self._generate_fallback_summary(transcript, target_language, video_title)
-            
+
+            if custom_prompt and custom_prompt.strip():
+                logger.info(
+                    "Резюме с пользовательским промптом (%d символов)",
+                    len(custom_prompt),
+                )
+
             # Оценка длины текста транскрипции, определение необходимости пофрагментной обработки
             estimated_tokens = self._estimate_tokens(transcript)
             max_summarize_tokens = 4000  # Повышенный лимит для использования одноблочной обработки (лучшее качество)
-            
+
             if estimated_tokens <= max_summarize_tokens:
                 # Короткий текст — прямое резюме
-                return await self._summarize_single_text(transcript, target_language, video_title)
+                return await self._summarize_single_text(
+                    transcript, target_language, video_title,
+                    custom_prompt=custom_prompt,
+                )
             else:
                 # Длинный текст — пофрагментное резюме
                 logger.info(f"Длинный текст ({estimated_tokens} токенов), включена пофрагментная обработка")
-                return await self._summarize_with_chunks(transcript, target_language, video_title, max_summarize_tokens)
-            
+                return await self._summarize_with_chunks(
+                    transcript, target_language, video_title,
+                    max_summarize_tokens,
+                    custom_prompt=custom_prompt,
+                )
+
         except Exception as e:
             logger.error(f"Ошибка создания резюме: {str(e)}")
             return self._generate_fallback_summary(transcript, target_language, video_title)
 
-    async def _summarize_single_text(self, transcript: str, target_language: str, video_title: str = None) -> str:
+    async def _summarize_single_text(
+        self,
+        transcript: str,
+        target_language: str,
+        video_title: str = None,
+        custom_prompt: str = "",
+    ) -> str:
         """
         Создание резюме для одного текстового блока
         """
         # Получение названия целевого языка
         language_name = self.language_map.get(target_language, "中文（简体）")
-        
+
         # Промпт на английском (подходит для всех целевых языков)
         system_prompt = f"""You are an expert editor. Write a concise EXECUTIVE SUMMARY in {language_name} of the following material.
 
@@ -1012,12 +1042,24 @@ Hard rules:
 
 Output ONLY the summary body in {language_name}."""
 
+        # Если передан пользовательский промпт — добавляем как блок
+        # с более высоким приоритетом, но не отменяем базовые правила
+        if custom_prompt and custom_prompt.strip():
+            system_prompt += (
+                "\n\n=== USER INSTRUCTIONS (HIGHER PRIORITY) ===\n"
+                f"{custom_prompt.strip()}\n"
+                "=== END USER INSTRUCTIONS ===\n\n"
+                f"Follow the user instructions above. Keep the output in "
+                f"{language_name}. Preserve the same no-preamble / "
+                f"no-closing style as defined by the base rules."
+            )
+
         user_prompt = f"""Summarize the following content in {language_name}. Follow the system rules strictly (brief executive summary, no meta-commentary):
 
 {transcript}"""
 
         logger.info(f"Создание резюме на {language_name}...")
-        
+
         # Вызов OpenAI API
         response = self.client.chat.completions.create(
             model=self.advanced_model,
@@ -1028,27 +1070,38 @@ Output ONLY the summary body in {language_name}."""
             max_tokens=2200,
             temperature=0.25
         )
-        
+
         summary = strip_llm_artifacts(response.choices[0].message.content or "")
 
         return self._format_summary_with_meta(summary, target_language, video_title)
 
-    async def _summarize_with_chunks(self, transcript: str, target_language: str, video_title: str, max_tokens: int) -> str:
+    async def _summarize_with_chunks(
+        self,
+        transcript: str,
+        target_language: str,
+        video_title: str,
+        max_tokens: int,
+        custom_prompt: str = "",
+    ) -> str:
         """
-        Пофрагментное создание резюме для длинного текста
+        Пофрагментное создание резюме для длинного текста.
+
+        Пользовательский промпт применяется только на финальном шаге
+        интеграции, чтобы не получить N частичных резюме, каждое
+        из которых пытается выполнить одну и ту же инструкцию.
         """
         language_name = self.language_map.get(target_language, "中文（简体）")
 
         # Использование стратегии из JS: интеллектуальная разбивка по символам (абзац > предложение)
         chunks = self._smart_chunk_text(transcript, max_chars_per_chunk=4000)
         logger.info(f"Разбито на {len(chunks)} блоков для резюмирования")
-        
+
         chunk_summaries = []
-        
-        # Создание локального резюме для каждого блока
+
+        # --- Шаг 1: промежуточные резюме по чанкам (БЕЗ user prompt) ---
         for i, chunk in enumerate(chunks):
             logger.info(f"Резюмирование блока {i+1}/{len(chunks)}...")
-            
+
             system_prompt = f"""You are a summarization expert. Write a brief section summary in {language_name}.
 
 This is part {i+1} of {len(chunks)} of the full transcript.
@@ -1074,24 +1127,29 @@ Output content only, no headings like "Summary:"."""
                     max_tokens=600,
                     temperature=0.25
                 )
-                
+
                 chunk_summary = strip_llm_artifacts(response.choices[0].message.content or "")
                 chunk_summaries.append(chunk_summary)
-                
+
             except Exception as e:
                 logger.error(f"Ошибка резюмирования блока {i+1}: {e}")
                 # При ошибке — краткое изложение
                 simple_summary = f"Содержание части {i+1}: " + chunk[:200] + "..."
                 chunk_summaries.append(simple_summary)
-        
+
         # Объединение локальных резюме (с номерами)
         combined_summaries = "\n\n".join([f"[Part {idx+1}]\n" + s for idx, s in enumerate(chunk_summaries)])
 
+        # --- Шаг 2: финальная интеграция (здесь применяем user prompt) ---
         logger.info("Интеграция финального резюме...")
         if len(chunk_summaries) > 10:
-            final_summary = await self._integrate_hierarchical_summaries(chunk_summaries, target_language)
+            final_summary = await self._integrate_hierarchical_summaries(
+                chunk_summaries, target_language, custom_prompt=custom_prompt
+            )
         else:
-            final_summary = await self._integrate_chunk_summaries(combined_summaries, target_language)
+            final_summary = await self._integrate_chunk_summaries(
+                combined_summaries, target_language, custom_prompt=custom_prompt
+            )
 
         return self._format_summary_with_meta(final_summary, target_language, video_title)
 
@@ -1131,20 +1189,30 @@ Output content only, no headings like "Summary:"."""
         return final_chunks
 
     async def _integrate_hierarchical_summaries(
-        self, chunk_summaries: list, target_language: str
+        self,
+        chunk_summaries: list,
+        target_language: str,
+        custom_prompt: str = "",
     ) -> str:
         """Много частичных резюме: свертка через тот же интегратор, что и для <=10."""
         combined = "\n\n".join(
             f"[Part {idx + 1}]\n{s}" for idx, s in enumerate(chunk_summaries)
         )
-        return await self._integrate_chunk_summaries(combined, target_language)
+        return await self._integrate_chunk_summaries(
+            combined, target_language, custom_prompt=custom_prompt
+        )
 
-    async def _integrate_chunk_summaries(self, combined_summaries: str, target_language: str) -> str:
+    async def _integrate_chunk_summaries(
+        self,
+        combined_summaries: str,
+        target_language: str,
+        custom_prompt: str = "",
+    ) -> str:
         """
         Интеграция частичных резюме в единое связное резюме
         """
         language_name = self.language_map.get(target_language, "中文（简体）")
-        
+
         try:
             system_prompt = f"""You integrate partial summaries into ONE concise executive summary in {language_name}.
 
@@ -1152,6 +1220,16 @@ Rules:
 - Total length about 280–650 words in {language_name}; remove duplication, do not expand into a transcript-length rewrite.
 - Markdown: paragraphs separated by blank lines; optional `## Key takeaways` only if it adds clarity.
 - No preamble, no meta-closings (e.g. offers to revise or "let me know")."""
+
+            # Пользовательский промпт применяем здесь — на финальном шаге
+            if custom_prompt and custom_prompt.strip():
+                system_prompt += (
+                    "\n\n=== USER INSTRUCTIONS (HIGHER PRIORITY) ===\n"
+                    f"{custom_prompt.strip()}\n"
+                    "=== END USER INSTRUCTIONS ===\n\n"
+                    f"Follow the user instructions above. Keep the output in "
+                    f"{language_name}. Do not add preamble or meta-closings."
+                )
 
             user_prompt = f"""Merge the following partial summaries into one executive summary in {language_name}:
 

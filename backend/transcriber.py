@@ -167,6 +167,7 @@ class Transcriber:
                 self.model_size,
                 device=self.device,
                 compute_type=compute,
+                local_files_only=True,   # ← не ходим в интернет
             )
             logger.info(
                 "✅ Модель загружена: device=%s, compute_type=%s",
@@ -179,6 +180,7 @@ class Transcriber:
                 try:
                     self.model = WhisperModel(
                         self.model_size, device="cpu", compute_type="int8",
+                        local_files_only=False,  # ← скачиваем один раз
                     )
                     self.device = "cpu"
                     self.compute_type = "int8"
